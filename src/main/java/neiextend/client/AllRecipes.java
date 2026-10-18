@@ -10,9 +10,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 import codechicken.nei.ItemList;
+import codechicken.nei.ItemStackSet;
+import codechicken.nei.api.ItemInfo;
 import codechicken.nei.recipe.GuiRecipe;
 import codechicken.nei.recipe.ICraftingHandler;
 import codechicken.nei.recipe.IRecipeHandler;
@@ -28,9 +31,14 @@ import neiextend.mixins.late.AccessorGuiUsageRecipe;
  * opens even when the tab is hidden; Escape comes back to the screen it was opened from.
  * <p>
  * Some tabs can't list all their recipes at once: they only answer for one item (NEI's own "all" shows nothing for
- * them). Those are asked about every item of NEI's item list instead, and what they find is put together in one tab.
+ * them). Those are asked about every item of the game instead, the ones hidden in NEI too, and what they find is
+ * put together in one tab.
  */
 public final class AllRecipes {
+
+    /** Every item, hidden ones included, and the item list of NEI it was made from (it is made again with it). */
+    private static List<ItemStack> allItems;
+    private static List<ItemStack> allItemsFrom;
 
     private AllRecipes() {}
 
@@ -86,8 +94,8 @@ public final class AllRecipes {
      */
     private static TemplateRecipeHandler byItems(TemplateRecipeHandler base, boolean crafting)
         throws InterruptedException, ExecutionException {
-        List<ItemStack> items = ItemList.items;
-        if (items == null || items.isEmpty() || ItemList.forkJoinPool == null) {
+        List<ItemStack> items = allItems();
+        if (items.isEmpty() || ItemList.forkJoinPool == null) {
             return null;
         }
         List<TemplateRecipeHandler> found = ItemList.forkJoinPool.submit(
@@ -116,6 +124,47 @@ public final class AllRecipes {
             }
         }
         return combined.arecipes.isEmpty() ? null : combined;
+    }
+
+    /**
+     * NEI's item list, then the items NEI hides from it: a recipe making a hidden item is still a recipe of the tab.
+     * Client thread only.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<ItemStack> allItems() {
+        List<ItemStack> shown = ItemList.items;
+        if (shown == null) {
+            return Collections.emptyList();
+        }
+        if (allItems != null && allItemsFrom == shown) {
+            return allItems;
+        }
+        List<ItemStack> all = new ArrayList<>(shown);
+        ItemStackSet known = new ItemStackSet();
+        known.addAll(shown);
+        for (Item item : (Iterable<Item>) Item.itemRegistry) {
+            if (item == null) {
+                continue;
+            }
+            List<ItemStack> variants = new ArrayList<>(ItemInfo.itemOverrides.get(item));
+            try {
+                if (variants.isEmpty()) {
+                    item.getSubItems(item, null, variants);
+                }
+            } catch (Throwable ignored) {
+                // An item that can't list its kinds without a creative tab: only NEI's own list has it.
+            }
+            variants.addAll(ItemInfo.itemVariants.get(item));
+            for (ItemStack stack : variants) {
+                if (stack != null && stack.getItem() != null && !known.contains(stack)) {
+                    known.add(stack);
+                    all.add(stack);
+                }
+            }
+        }
+        allItems = all;
+        allItemsFrom = shown;
+        return all;
     }
 
     /** The handler's recipes (or uses) of one item, or null for none. */
