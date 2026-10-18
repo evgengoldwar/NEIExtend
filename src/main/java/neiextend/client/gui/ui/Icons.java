@@ -36,7 +36,25 @@ public final class Icons {
     public static final String[] TARGET = { "....#....", "..#####..", ".#..#..#.", ".#.....#.", "###.#.###",
         ".#.....#.", ".#..#..#.", "..#####..", "....#...." };
 
+    /** Putting a tab first: a star. */
+    public static final String[] STAR = { "....#....", "...###...", "...###...", "#########", ".#######.", "..#####..",
+        "..#####..", ".###.###.", ".##...##." };
+
+    /** The order of the tabs: lines of a list, the first one raised. */
+    public static final String[] ORDER = { "..#......", ".###.####", "#####....", "..#..####", "..#......", "..#..####",
+        "..#......", "..#..####", "........." };
+
     // Small icons (7x7).
+    public static final String[] SMALL_STAR = { "...#...", "..###..", "#######", ".#####.", "..###..", ".##.##.",
+        ".#...#." };
+    public static final String[] SMALL_STAR_EMPTY = { "...#...", "..#.#..", "##...##", ".#...#.", "..#.#..", ".#.#.#.",
+        ".#...#." };
+    public static final String[] SMALL_UP = { "...#...", "..###..", ".#####.", "#######", "..###..", "..###..",
+        "..###.." };
+    public static final String[] SMALL_DOWN = { "..###..", "..###..", "..###..", "#######", ".#####.", "..###..",
+        "...#..." };
+    public static final String[] SMALL_CLEAR = { "#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.",
+        "#.....#" };
     public static final String[] SMALL_SEARCH = { ".###...", "#...#..", "#...#..", "#...#..", ".###...", "....##.",
         ".....##" };
     public static final String[] SMALL_EYE = { ".......", "..###..", ".#...#.", "#..#..#", ".#...#.", "..###..",

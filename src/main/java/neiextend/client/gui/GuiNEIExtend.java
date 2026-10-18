@@ -2,9 +2,11 @@ package neiextend.client.gui;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.client.audio.PositionedSoundRecord;
@@ -38,8 +40,9 @@ import neiextend.client.gui.ui.Theme;
 import neiextend.client.gui.ui.WindowHeader;
 
 /**
- * The mod's window: every recipe tab of NEI with a switch to hide or show it, the recipes hidden so far with a way to
- * bring each back, and how it all works. Opened from the bar beside NEI's recipe screen, or with its key; closing it
+ * The mod's window: every recipe tab of NEI with a switch to hide or show it and a star to put it first, the order of
+ * the tabs put first, the recipes hidden so far with a way to bring each back, and how it all works. Opened from the
+ * bar beside NEI's recipe screen, or with its key; closing it
  * goes back to the recipe screen it was opened from, looked up again with the changes.
  */
 public class GuiNEIExtend extends ScaledScreen {
@@ -47,6 +50,7 @@ public class GuiNEIExtend extends ScaledScreen {
     public static final int WIDTH = 560, HEIGHT = 372;
     private static final int MENU = 96, PAGE_HEIGHT = 25;
     private static final int TAB_ROW = 26, RECIPE_ROW = 30, CONTROLS = 18, SWITCH = 24, NOTE = 14;
+    private static final int ORDER_BUTTON = 16;
     private static final int RESTORE_WIDTH = 74, INGREDIENT = 14, MAX_INGREDIENTS = 9;
     /** How long a "show everything" waits for the second click that confirms it (ms). */
     private static final long CONFIRM_MS = 3000, STATUS_MS = 3000;
@@ -56,6 +60,7 @@ public class GuiNEIExtend extends ScaledScreen {
     private enum Page {
 
         TABS(Icons.TABS, "neiextend.page.tabs"),
+        ORDER(Icons.ORDER, "neiextend.page.order"),
         RECIPES(Icons.RECIPES, "neiextend.page.recipes"),
         HELP(Icons.HELP, "neiextend.page.help");
 
@@ -90,7 +95,7 @@ public class GuiNEIExtend extends ScaledScreen {
             this.searchText = entry.searchText;
         }
 
-        TabRow(HiddenStore.HiddenTab tab) {
+        TabRow(HiddenStore.SavedTab tab) {
             this.entry = null;
             this.id = tab.id;
             this.name = tab.name;
@@ -150,10 +155,18 @@ public class GuiNEIExtend extends ScaledScreen {
     private final GuiScreen parent;
     private final int revisionAtOpen = HiddenStore.INSTANCE.revision();
     private final List<HandlerCatalog.Entry> catalog = HandlerCatalog.all();
+    private final Map<String, HandlerCatalog.Entry> catalogById = new HashMap<>();
     private Page page = lastPage;
     private Filter filter = Filter.ALL;
 
     private final List<TabRow> tabRows = new ArrayList<>();
+    /** The tabs put first, in their order. */
+    private final List<TabRow> orderRows = new ArrayList<>();
+    /** The row of the order being dragged (-1 for none), where it was grabbed, and whether it moved yet. */
+    private int dragIndex = -1, dragGrab;
+    /** How tall the help is, as last drawn: it scrolls when taller than the window. */
+    private int helpHeight;
+    private boolean dragMoved;
     private final List<RecipeRow> recipeRows = new ArrayList<>();
     private int scroll;
     private final Smooth shownScroll = new Smooth(0);
@@ -176,6 +189,9 @@ public class GuiNEIExtend extends ScaledScreen {
 
     public GuiNEIExtend(GuiScreen parent) {
         this.parent = parent;
+        for (HandlerCatalog.Entry entry : catalog) {
+            catalogById.put(entry.id, entry);
+        }
         for (int i = 0; i < pageLight.length; i++) {
             pageLight[i] = new Smooth(0);
         }
@@ -203,7 +219,7 @@ public class GuiNEIExtend extends ScaledScreen {
         search = new FlatTextField(fontRendererObj, contentLeft, contentTop, 170, CONTROLS);
         search.setMaxStringLength(64);
         search.setText(text);
-        search.setFocused(focused && page != Page.HELP);
+        search.setFocused(focused && usesSearch());
         search.setHint(I18n.format("neiextend.search"))
             .setOnCleared(this::rebuild);
 
@@ -222,6 +238,7 @@ public class GuiNEIExtend extends ScaledScreen {
                 .trim()
                 .toLowerCase(Locale.ROOT);
         tabRows.clear();
+        orderRows.clear();
         recipeRows.clear();
         if (page == Page.TABS) {
             Set<String> known = new HashSet<>();
@@ -229,10 +246,15 @@ public class GuiNEIExtend extends ScaledScreen {
                 known.add(entry.id);
                 addTab(new TabRow(entry).settled(), query);
             }
-            for (HiddenStore.HiddenTab tab : HiddenStore.INSTANCE.tabs()) {
+            for (HiddenStore.SavedTab tab : HiddenStore.INSTANCE.tabs()) {
                 if (!known.contains(tab.id)) {
                     addTab(new TabRow(tab).settled(), query);
                 }
+            }
+        } else if (page == Page.ORDER) {
+            for (HiddenStore.SavedTab tab : HiddenStore.INSTANCE.pinned()) {
+                HandlerCatalog.Entry entry = catalogById.get(tab.id);
+                orderRows.add(entry != null ? new TabRow(entry) : new TabRow(tab));
             }
         } else if (page == Page.RECIPES) {
             List<HiddenStore.HiddenRecipe> recipes = new ArrayList<>(HiddenStore.INSTANCE.recipes());
@@ -263,7 +285,21 @@ public class GuiNEIExtend extends ScaledScreen {
     }
 
     private int rowCount() {
-        return page == Page.RECIPES ? recipeRows.size() : page == Page.TABS ? tabRows.size() : 0;
+        switch (page) {
+            case TABS:
+                return tabRows.size();
+            case ORDER:
+                return orderRows.size();
+            case RECIPES:
+                return recipeRows.size();
+            default:
+                return 0;
+        }
+    }
+
+    /** The pages with a search over their list. */
+    private boolean usesSearch() {
+        return page == Page.TABS || page == Page.RECIPES;
     }
 
     private int contentHeight() {
@@ -271,6 +307,9 @@ public class GuiNEIExtend extends ScaledScreen {
     }
 
     private int maxScroll() {
+        if (page == Page.HELP) {
+            return Math.max(0, helpHeight - (contentBottom - contentTop));
+        }
         return Math.max(0, contentHeight() - (listBottom - listTop));
     }
 
@@ -297,6 +336,29 @@ public class GuiNEIExtend extends ScaledScreen {
 
     private int restoreX() {
         return contentRight - 14 - RESTORE_WIDTH;
+    }
+
+    /** The buttons of a line of the order: up, down, and out of it. */
+    private int upX() {
+        return downX() - 2 - ORDER_BUTTON;
+    }
+
+    private int downX() {
+        return removeX() - 2 - ORDER_BUTTON;
+    }
+
+    private int removeX() {
+        return contentRight - 14 - ORDER_BUTTON;
+    }
+
+    /** Width of a tab's R and U tags. */
+    private static int tagsWidth(HandlerCatalog.Entry entry) {
+        return entry == null ? 0 : (entry.usage ? 14 : 0) + (entry.crafting ? entry.usage ? 16 : 14 : 0);
+    }
+
+    /** Where the star of a line of the tabs is, left of its tags. */
+    private int starX(TabRow row) {
+        return switchX() - 8 - tagsWidth(row.entry) - (row.entry != null && tagsWidth(row.entry) > 0 ? 6 : 0) - 11;
     }
 
     /** The filter buttons: where each starts, and where the last ends. */
@@ -355,7 +417,7 @@ public class GuiNEIExtend extends ScaledScreen {
         shownScroll.set(0);
         confirmUntil = 0;
         search.setText("");
-        search.setFocused(next != Page.HELP);
+        search.setFocused(next == Page.TABS || next == Page.RECIPES);
         rebuild();
     }
 
@@ -374,6 +436,8 @@ public class GuiNEIExtend extends ScaledScreen {
             confirmUntil = 0;
             if (page == Page.TABS) {
                 HiddenStore.INSTANCE.showAllTabs();
+            } else if (page == Page.ORDER) {
+                HiddenStore.INSTANCE.unpinAll();
             } else {
                 HiddenStore.INSTANCE.showAllRecipes();
             }
@@ -389,7 +453,7 @@ public class GuiNEIExtend extends ScaledScreen {
             switchTo(clickedPage);
             return;
         }
-        if (page != Page.HELP) {
+        if (usesSearch()) {
             search.mouseClicked(mouseX, mouseY, button);
         }
         super.mouseClicked(mouseX, mouseY, button);
@@ -439,17 +503,32 @@ public class GuiNEIExtend extends ScaledScreen {
         if (index < 0) {
             return;
         }
+        int y = rowY(index, scroll);
         if (page == Page.TABS) {
             TabRow row = tabRows.get(index);
+            int starX = starX(row);
+            if (Theme.inside(mouseX, mouseY, starX - 2, y + 4, starX + 11, y + TAB_ROW - 4)) {
+                if (HiddenStore.INSTANCE.pinPosition(row.id) >= 0) {
+                    HiddenStore.INSTANCE.unpin(row.id);
+                    click();
+                } else if (row.entry != null) {
+                    // Added last, so clicking stars one after another builds the order.
+                    HiddenStore.INSTANCE.pin(row.entry.handler, -1);
+                    click();
+                }
+                return;
+            }
             if (row.hidden()) {
                 HiddenStore.INSTANCE.showTab(row.id);
             } else if (row.entry != null) {
                 HiddenStore.INSTANCE.hideTab(row.entry.handler);
             }
             click();
+        } else if (page == Page.ORDER) {
+            clickOrder(index, y, mouseX, mouseY);
         } else {
             RecipeRow row = recipeRows.get(index);
-            int y = rowY(index, scroll), by = y + (RECIPE_ROW - 16) / 2;
+            int by = y + (RECIPE_ROW - 16) / 2;
             if (Theme.inside(mouseX, mouseY, restoreX(), by, restoreX() + RESTORE_WIDTH, by + 16)) {
                 HiddenStore.INSTANCE.showRecipe(row.recipe);
                 click();
@@ -458,9 +537,44 @@ public class GuiNEIExtend extends ScaledScreen {
         }
     }
 
+    /** A click on a line of the order: its buttons move it or take it out; elsewhere it starts dragging it. */
+    private void clickOrder(int index, int y, int mouseX, int mouseY) {
+        TabRow row = orderRows.get(index);
+        int by = y + (TAB_ROW - ORDER_BUTTON) / 2;
+        boolean shift = isShiftKeyDown();
+        if (Theme.inside(mouseX, mouseY, upX(), by, upX() + ORDER_BUTTON, by + ORDER_BUTTON)) {
+            if (index > 0) {
+                HiddenStore.INSTANCE.movePin(row.id, shift ? 0 : index - 1);
+                click();
+                rebuild();
+            }
+        } else if (Theme.inside(mouseX, mouseY, downX(), by, downX() + ORDER_BUTTON, by + ORDER_BUTTON)) {
+            if (index < orderRows.size() - 1) {
+                HiddenStore.INSTANCE.movePin(row.id, shift ? orderRows.size() - 1 : index + 1);
+                click();
+                rebuild();
+            }
+        } else if (Theme.inside(mouseX, mouseY, removeX(), by, removeX() + ORDER_BUTTON, by + ORDER_BUTTON)) {
+            HiddenStore.INSTANCE.unpin(row.id);
+            click();
+            rebuild();
+        } else {
+            dragIndex = index;
+            dragGrab = mouseY - y;
+            dragMoved = false;
+        }
+    }
+
+    /** Where the dragged line would go if dropped with the mouse here. */
+    private int dropIndex(int mouseY) {
+        int top = mouseY - dragGrab + TAB_ROW / 2 - listTop - 2 + scroll;
+        return Math.max(0, Math.min(orderRows.size() - 1, Math.floorDiv(top, TAB_ROW)));
+    }
+
     /** Opens the tab of the row with all its recipes (a right click on it). */
     private void openAllRecipes(int index) {
-        String id = page == Page.TABS ? tabRows.get(index).id : recipeRows.get(index).recipe.handlerId;
+        String id = page == Page.TABS ? tabRows.get(index).id
+            : page == Page.ORDER ? orderRows.get(index).id : recipeRows.get(index).recipe.handlerId;
         HandlerCatalog.Entry entry = null;
         for (HandlerCatalog.Entry each : catalog) {
             if (each.id.equals(id)) {
@@ -477,6 +591,10 @@ public class GuiNEIExtend extends ScaledScreen {
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int button, long held) {
+        if (dragIndex >= 0) {
+            dragMoved = true;
+            return;
+        }
         int dragged = scrollbarDrag.drag(mouseY);
         if (dragged >= 0) {
             scroll = dragged;
@@ -488,6 +606,15 @@ public class GuiNEIExtend extends ScaledScreen {
         super.mouseMovedOrUp(mouseX, mouseY, state);
         if (state >= 0) {
             scrollbarDrag.release();
+            if (dragIndex >= 0 && dragMoved && dragIndex < orderRows.size()) {
+                int to = dropIndex(mouseY);
+                if (to != dragIndex) {
+                    HiddenStore.INSTANCE.movePin(orderRows.get(dragIndex).id, to);
+                    click();
+                    rebuild();
+                }
+            }
+            dragIndex = -1;
         }
     }
 
@@ -507,7 +634,7 @@ public class GuiNEIExtend extends ScaledScreen {
             close();
             return;
         }
-        if (page != Page.HELP && search.isFocused()) {
+        if (usesSearch() && search.isFocused()) {
             String before = search.getText();
             if (search.textboxKeyTyped(typedChar, keyCode)) {
                 if (!before.equals(search.getText())) {
@@ -573,16 +700,32 @@ public class GuiNEIExtend extends ScaledScreen {
         boolean confirming = System.currentTimeMillis() < confirmUntil;
         showAll.visible = page != Page.HELP;
         showAll.enabled = page == Page.TABS ? HiddenStore.INSTANCE.tabCount() > 0
-            : HiddenStore.INSTANCE.hasHiddenRecipes();
+            : page == Page.ORDER ? !HiddenStore.INSTANCE.pinned()
+                .isEmpty() : HiddenStore.INSTANCE.hasHiddenRecipes();
+        showAll.icon = page == Page.ORDER ? Icons.SMALL_CLEAR : Icons.SMALL_EYE;
         showAll.danger = confirming;
         showAll.displayString = I18n.format(
             confirming ? "neiextend.show_all.confirm"
-                : page == Page.TABS ? "neiextend.show_all.tabs" : "neiextend.show_all.recipes");
+                : page == Page.TABS ? "neiextend.show_all.tabs"
+                    : page == Page.ORDER ? "neiextend.show_all.order" : "neiextend.show_all.recipes");
 
         if (page == Page.HELP) {
             drawHelp();
         } else {
-            search.drawTextBox();
+            if (usesSearch()) {
+                search.drawTextBox();
+            } else {
+                // The order has no search: what it does, in its place.
+                Icons.draw(Icons.STAR, contentLeft + 1, contentTop + 4, Theme.WARN);
+                fontRendererObj.drawString(
+                    Theme.ellipsize(
+                        fontRendererObj,
+                        I18n.format("neiextend.order.hint"),
+                        showAll.xPosition - 18 - contentLeft),
+                    contentLeft + 15,
+                    contentTop + 5,
+                    Theme.TEXT_MUTED);
+            }
             if (page == Page.TABS) {
                 drawFilters(mouseX, mouseY);
             }
@@ -622,8 +765,10 @@ public class GuiNEIExtend extends ScaledScreen {
             int textColor = chosen ? Theme.TEXT : Theme.blend(0xFFB8C4D6, Theme.TEXT, lit);
             int room = x1 - x0 - 24 - 4;
             int hidden = each == Page.TABS ? HiddenStore.INSTANCE.tabCount()
-                : each == Page.RECIPES ? HiddenStore.INSTANCE.recipes()
-                    .size() : 0;
+                : each == Page.ORDER ? HiddenStore.INSTANCE.pinned()
+                    .size()
+                    : each == Page.RECIPES ? HiddenStore.INSTANCE.recipes()
+                        .size() : 0;
             if (hidden > 0) {
                 String count = String.valueOf(hidden);
                 int countWidth = fontRendererObj.getStringWidth(count) + 6;
@@ -680,7 +825,10 @@ public class GuiNEIExtend extends ScaledScreen {
         }
         Theme.clip(x0 + 1, listTop + 1, x1 - 1, listBottom - 1);
         int height = rowHeight();
-        for (int i = 0; i < rowCount(); i++) {
+        if (page == Page.ORDER) {
+            drawOrder(shown, inList, mouseX, mouseY);
+        }
+        for (int i = 0; page != Page.ORDER && i < rowCount(); i++) {
             int y = rowY(i, shown);
             if (y + height < listTop || y > listBottom) {
                 continue;
@@ -706,22 +854,131 @@ public class GuiNEIExtend extends ScaledScreen {
         }
     }
 
+    /** The tabs put first; the one being dragged follows the mouse, the others make room where it would go. */
+    private void drawOrder(int shown, boolean inList, int mouseX, int mouseY) {
+        boolean dragging = dragIndex >= 0 && dragMoved && dragIndex < orderRows.size();
+        int target = dragging ? dropIndex(mouseY) : -1;
+        int slot = 0;
+        for (int i = 0; i < orderRows.size(); i++) {
+            if (dragging && i == dragIndex) {
+                continue;
+            }
+            int place = dragging && slot >= target ? slot + 1 : slot;
+            slot++;
+            int y = rowY(place, shown);
+            if (y + TAB_ROW < listTop || y > listBottom) {
+                continue;
+            }
+            boolean hovered = !dragging && inList
+                && Theme.inside(mouseX, mouseY, contentLeft + 1, y, contentRight - 6, y + TAB_ROW);
+            drawOrderRow(orderRows.get(i), place + 1, y, hovered, mouseX, mouseY, false);
+        }
+        if (dragging) {
+            int y = Math.max(listTop - TAB_ROW / 2, Math.min(listBottom - TAB_ROW / 2, mouseY - dragGrab));
+            int x0 = contentLeft + 2, x1 = contentRight - 7;
+            int markY = rowY(target, shown);
+            Theme.fill(x0, markY, x1, markY + 1, Theme.WARN);
+            Theme.shadow(x0, y, x1, y + TAB_ROW, 4);
+            Theme.roundBox(x0, y, x1, y + TAB_ROW, Theme.SELECTED, Theme.WARN);
+            drawOrderRow(orderRows.get(dragIndex), target + 1, y, true, -10000, -10000, true);
+        }
+    }
+
+    private void drawOrderRow(TabRow row, int rank, int y, boolean hovered, int mouseX, int mouseY, boolean floating) {
+        int x0 = contentLeft, x1 = contentRight - 6;
+        double lit = row.light.update(hovered ? 1 : 0, 22);
+        if (!floating && lit > 0.01) {
+            Theme.fill(x0 + 1, y, x1, y + TAB_ROW, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
+        }
+        // A grip: the line can be dragged.
+        int gripColor = floating ? Theme.WARN : Theme.blend(Theme.TEXT_DISABLED, Theme.TEXT_MUTED, lit);
+        for (int dy = 0; dy < 3; dy++) {
+            Theme.fill(x0 + 6, y + 9 + dy * 3, x0 + 8, y + 10 + dy * 3, gripColor);
+            Theme.fill(x0 + 9, y + 9 + dy * 3, x0 + 11, y + 10 + dy * 3, gripColor);
+        }
+        String number = String.valueOf(rank);
+        int badgeWidth = Math.max(16, fontRendererObj.getStringWidth(number) + 8);
+        int bx = x0 + 15, by = y + (TAB_ROW - 12) / 2;
+        Theme.roundBox(bx, by, bx + badgeWidth, by + 12, 0xFF3A3218, Theme.blend(Theme.WARN, 0xFF3A3218, 0.4));
+        Theme.centered(fontRendererObj, number, bx + badgeWidth / 2, by + 2, Theme.WARN);
+
+        int boxX = bx + badgeWidth + 6, boxY = y + 3;
+        boolean hidden = row.hidden();
+        Theme.roundBox(boxX, boxY, boxX + 20, boxY + 20, 0xFF0A1424, hidden ? 0xFF4A2A30 : Theme.BOX_BORDER);
+        drawHandlerIcon(row, boxX + 2, boxY + 2, hidden);
+
+        int textX = boxX + 28, room = upX() - 8 - textX;
+        int nameX = textX;
+        if (hidden) {
+            Icons.draw(Icons.SMALL_EYE_OFF, textX, y + 4, Theme.DANGER);
+            nameX += 10;
+        }
+        fontRendererObj.drawString(
+            Theme.ellipsize(fontRendererObj, row.name, room - (nameX - textX)),
+            nameX,
+            y + 4,
+            hidden ? Theme.TEXT_MUTED : Theme.TEXT);
+        String detail = row.entry == null ? I18n.format("neiextend.tabs.missing")
+            : hidden ? I18n.format("neiextend.order.hidden", row.mod) : row.mod;
+        fontRendererObj.drawString(
+            Theme.ellipsize(fontRendererObj, detail, room),
+            textX,
+            y + 14,
+            row.entry == null || hidden ? Theme.WARN : Theme.blend(Draw.modColor(row.mod), Theme.TEXT_MUTED, 0.25));
+
+        int buttonY = y + (TAB_ROW - ORDER_BUTTON) / 2;
+        boolean up = orderButton(upX(), buttonY, Icons.SMALL_UP, rank > 1, false, mouseX, mouseY);
+        boolean down = orderButton(downX(), buttonY, Icons.SMALL_DOWN, rank < orderRows.size(), false, mouseX, mouseY);
+        boolean remove = orderButton(removeX(), buttonY, Icons.SMALL_CLEAR, true, true, mouseX, mouseY);
+        if (floating || hoverText != null) {
+            return;
+        }
+        if (up) {
+            hoverText = I18n.format("neiextend.order.up");
+        } else if (down) {
+            hoverText = I18n.format("neiextend.order.down");
+        } else if (remove) {
+            hoverText = I18n.format("neiextend.order.remove");
+        } else if (hovered) {
+            hoverText = row.name + "\n" + I18n.format("neiextend.order.tip", rank);
+        }
+    }
+
+    /** A small square button of a line of the order; returns whether the mouse is on it. */
+    private boolean orderButton(int x, int y, String[] icon, boolean enabled, boolean danger, int mouseX, int mouseY) {
+        boolean over = enabled && Theme.inside(mouseX, mouseY, x, y, x + ORDER_BUTTON, y + ORDER_BUTTON);
+        int accent = danger ? Theme.DANGER : Theme.ACCENT;
+        int background = !enabled ? Theme.CONTROL_DISABLED
+            : over ? (danger ? 0xFF3A2326 : Theme.CONTROL_HOVER) : Theme.CONTROL;
+        Theme.roundBox(x, y, x + ORDER_BUTTON, y + ORDER_BUTTON, background, over ? accent : 0xFF2A3D5C);
+        Icons.drawCentered(
+            icon,
+            x,
+            y,
+            x + ORDER_BUTTON,
+            y + ORDER_BUTTON,
+            !enabled ? Theme.TEXT_DISABLED : over ? (danger ? Theme.DANGER : Theme.TEXT) : Theme.TEXT_MUTED);
+        return over;
+    }
+
     private void drawEmpty() {
         int centerX = (contentLeft + contentRight) / 2, centerY = (listTop + listBottom) / 2;
         boolean searching = !search.getText()
             .trim()
             .isEmpty() || page == Page.TABS && filter != Filter.ALL;
-        String[] icon = searching ? Icons.SMALL_SEARCH : page == Page.RECIPES ? Icons.TARGET : Icons.TABS;
+        String[] icon = searching ? Icons.SMALL_SEARCH
+            : page == Page.RECIPES ? Icons.TARGET : page == Page.ORDER ? Icons.STAR : Icons.TABS;
         Icons.draw(icon, centerX - Icons.width(icon) / 2, centerY - 22, Theme.TEXT_DISABLED);
         String title = I18n.format(
             searching ? "neiextend.empty.search"
                 : "neiextend.empty." + page.name()
                     .toLowerCase(Locale.ROOT));
         Theme.centered(fontRendererObj, title, centerX, centerY - 6, Theme.TEXT_MUTED);
-        if (!searching && page == Page.RECIPES) {
+        if (!searching && (page == Page.RECIPES || page == Page.ORDER)) {
             int y = centerY + 8;
-            for (Object line : fontRendererObj
-                .listFormattedStringToWidth(I18n.format("neiextend.empty.recipes_text"), 300)) {
+            for (Object line : fontRendererObj.listFormattedStringToWidth(
+                I18n.format(page == Page.ORDER ? "neiextend.empty.order_text" : "neiextend.empty.recipes_text"),
+                300)) {
                 Theme.centered(fontRendererObj, (String) line, centerX, y, Theme.TEXT_DISABLED);
                 y += 10;
             }
@@ -744,7 +1001,26 @@ public class GuiNEIExtend extends ScaledScreen {
         if (row.entry != null) {
             tagsWidth = drawTags(row.entry, switchX() - 8, y + (TAB_ROW - 12) / 2, mouseX, mouseY);
         }
-        int room = switchX() - 8 - tagsWidth - 8 - textX;
+        int rank = HiddenStore.INSTANCE.pinPosition(row.id) + 1;
+        int starX = starX(row), starY = y + (TAB_ROW - 7) / 2;
+        boolean overStar = Theme.inside(mouseX, mouseY, starX - 2, y + 4, starX + 11, y + TAB_ROW - 4);
+        int rankWidth = 0;
+        if (rank > 0) {
+            Icons.draw(Icons.SMALL_STAR, starX + 1, starY, overStar ? 0xFFFFE08A : Theme.WARN);
+            String number = "#" + rank;
+            rankWidth = fontRendererObj.getStringWidth(number) + 3;
+            fontRendererObj.drawString(number, starX - rankWidth + 1, starY, Theme.WARN);
+        } else if (row.entry != null) {
+            Icons.draw(
+                Icons.SMALL_STAR_EMPTY,
+                starX + 1,
+                starY,
+                overStar ? Theme.WARN : Theme.blend(Theme.TEXT_DISABLED, Theme.TEXT_MUTED, lit));
+        }
+        if (overStar && (rank > 0 || row.entry != null)) {
+            hoverText = I18n.format(rank > 0 ? "neiextend.tabs.star_on" : "neiextend.tabs.star", rank);
+        }
+        int room = starX - 6 - rankWidth - textX;
         int nameColor = hidden ? Theme.TEXT_MUTED
             : Theme.blend(Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.8), Theme.TEXT, lit);
         int nameX = textX;
@@ -926,7 +1202,8 @@ public class GuiNEIExtend extends ScaledScreen {
             return;
         }
         String count = page == Page.TABS ? I18n.format("neiextend.note.tabs", tabRows.size(), catalog.size())
-            : I18n.format("neiextend.note.recipes", recipeRows.size());
+            : page == Page.ORDER ? I18n.format("neiextend.note.order", orderRows.size())
+                : I18n.format("neiextend.note.recipes", recipeRows.size());
         fontRendererObj.drawString(count, contentLeft + 1, y, Theme.TEXT_DISABLED);
         String file = I18n.format("neiextend.note.file");
         int fileWidth = fontRendererObj.getStringWidth(file);
@@ -936,10 +1213,12 @@ public class GuiNEIExtend extends ScaledScreen {
 
     /** How it works, in a few boxes. */
     private void drawHelp() {
-        int x0 = contentLeft, x1 = contentRight, gap = 8;
-        String[] sections = { "tab", "recipe", "restore", "about" };
-        String[][] icons = { Icons.EYE_OFF, Icons.TARGET, Icons.SMALL_UNDO, Icons.SMALL_KEY };
-        int y = contentTop;
+        int x0 = contentLeft, x1 = contentRight - 6, gap = 6;
+        int shown = (int) Math.round(shownScroll.update(scroll, 18));
+        Theme.clip(x0, contentTop, contentRight, contentBottom);
+        String[] sections = { "tab", "order", "recipe", "restore", "about" };
+        String[][] icons = { Icons.EYE_OFF, Icons.STAR, Icons.TARGET, Icons.SMALL_UNDO, Icons.SMALL_KEY };
+        int y = contentTop - shown;
         for (int i = 0; i < sections.length; i++) {
             String key = "neiextend.help." + sections[i];
             List<String> lines = new ArrayList<>();
@@ -947,7 +1226,7 @@ public class GuiNEIExtend extends ScaledScreen {
                 .listFormattedStringToWidth(I18n.format(key + "_text", KeyHandler.keyName()), x1 - x0 - 24)) {
                 lines.add((String) line);
             }
-            int boxHeight = 24 + lines.size() * 10 + 4;
+            int boxHeight = 22 + lines.size() * 10;
             Theme.card(x0, y, x1, y + boxHeight);
             String[] icon = icons[i];
             Icons.draw(icon, x0 + 8, y + 10 - icon.length / 2, Theme.ACCENT);
@@ -963,6 +1242,19 @@ public class GuiNEIExtend extends ScaledScreen {
                 ly += 10;
             }
             y += boxHeight + gap;
+        }
+        Theme.unclip();
+        helpHeight = y + shown - gap - contentTop;
+        int visible = contentBottom - contentTop;
+        if (helpHeight > visible) {
+            Theme.scrollbar(
+                contentRight - 3,
+                contentTop + 2,
+                contentBottom - 2,
+                visible,
+                helpHeight,
+                shown / (double) (helpHeight - visible),
+                true);
         }
     }
 

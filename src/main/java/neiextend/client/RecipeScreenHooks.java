@@ -22,6 +22,7 @@ import org.lwjgl.opengl.GL11;
 
 import codechicken.lib.vec.Rectangle4i;
 import codechicken.nei.NEICPH;
+import codechicken.nei.NEIClientConfig;
 import codechicken.nei.Widget;
 import codechicken.nei.api.INEIGuiHandler;
 import codechicken.nei.api.IRecipeFilter;
@@ -43,8 +44,9 @@ import neiextend.client.gui.ui.Theme;
 import neiextend.mixins.late.AccessorGuiRecipe;
 
 /**
- * The mod on NEI's recipe screen: a small bar of buttons on the right of the window (hide this tab, pick recipes to
- * hide, open the mod's window), a red frame over the recipe under the mouse while picking, and a note under the
+ * The mod on NEI's recipe screen: a small bar of buttons on the right of the window (hide this tab, put it first,
+ * pick recipes to hide, open the mod's window), a red frame over the recipe under the mouse while picking, and a note
+ * under the
  * window after something was hidden, with a way to take it back.
  */
 public final class RecipeScreenHooks implements IContainerDrawHandler, IContainerTooltipHandler, INEIGuiHandler {
@@ -55,6 +57,7 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
     private enum Tool {
 
         HIDE_TAB(Icons.EYE_OFF),
+        PUT_FIRST(Icons.STAR),
         PICK_RECIPES(Icons.TARGET),
         OPEN_WINDOW(Icons.GEAR);
 
@@ -216,6 +219,9 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
             case HIDE_TAB:
                 hideTab(gui);
                 break;
+            case PUT_FIRST:
+                togglePutFirst(gui);
+                break;
             case PICK_RECIPES:
                 picking = !picking;
                 break;
@@ -258,6 +264,32 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
                 restore.run();
             });
         }
+    }
+
+    /** Puts the tab shown before all others, or back in NEI's order when it already is first. */
+    private void togglePutFirst(GuiRecipe<?> gui) {
+        IRecipeHandler handler = gui.getHandler();
+        if (handler == null) {
+            return;
+        }
+        String id = HandlerCatalog.idOf(handler);
+        String name = HandlerCatalog.nameOf(handler);
+        int was = HiddenStore.INSTANCE.pinPosition(id);
+        if (was >= 0) {
+            HiddenStore.INSTANCE.unpin(id);
+        } else {
+            HiddenStore.INSTANCE.pin(handler, 0);
+        }
+        gui.forceRefreshPage();
+        String text = I18n.format(was >= 0 ? "neiextend.toast.unpinned" : "neiextend.toast.pinned", name);
+        toast = new Toast(gui, text, () -> {
+            if (was >= 0) {
+                HiddenStore.INSTANCE.pin(handler, was);
+            } else {
+                HiddenStore.INSTANCE.unpin(id);
+            }
+            gui.forceRefreshPage();
+        });
     }
 
     private void hideRecipe(GuiRecipe<?> gui, RecipeWidget widget) {
@@ -387,6 +419,7 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
         } else {
             // Opened some other way: what was hidden still goes, but nothing can come back.
             handlers.removeIf(h -> HiddenStore.INSTANCE.isTabHidden(h) || !hasVisibleRecipe(h));
+            handlers.sort(TabOrder.around(NEIClientConfig.HANDLER_COMPARATOR));
         }
         if (handlers.isEmpty()) {
             close(gui);
@@ -470,14 +503,21 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
         for (Tool tool : Tool.values()) {
             int bx = x0 + PAD, by = buttonTop(gui, tool);
             boolean active = tool == Tool.PICK_RECIPES && picking;
+            boolean first = tool == Tool.PUT_FIRST && HiddenStore.INSTANCE.pinPosition(gui.getHandler()) >= 0;
             double lit = light[tool.ordinal()].update(tool == hovered ? 1 : 0, 22);
             int background, border;
             if (active) {
                 background = Theme.blend(0xFF8A2A2E, 0xFFB3364A, lit);
                 border = Theme.DANGER;
+            } else if (first) {
+                background = Theme.blend(0xFF3A3218, 0xFF4A4020, lit);
+                border = Theme.WARN;
             } else if (tool == Tool.HIDE_TAB) {
                 background = Theme.blend(Theme.CONTROL, 0xFF3A2326, lit);
                 border = Theme.blend(0xFF2A3D5C, Theme.DANGER, lit);
+            } else if (tool == Tool.PUT_FIRST) {
+                background = Theme.blend(Theme.CONTROL, 0xFF3A3218, lit);
+                border = Theme.blend(0xFF2A3D5C, Theme.WARN, lit);
             } else {
                 background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
                 border = Theme.blend(0xFF2A3D5C, Theme.ACCENT, lit);
@@ -488,11 +528,11 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
                     by,
                     bx + BUTTON,
                     by + BUTTON,
-                    tool == Tool.OPEN_WINDOW ? Theme.ACCENT : Theme.DANGER,
+                    tool == Tool.OPEN_WINDOW ? Theme.ACCENT : tool == Tool.PUT_FIRST ? Theme.WARN : Theme.DANGER,
                     lit * 0.4);
             }
             Theme.roundBox(bx, by, bx + BUTTON, by + BUTTON, background, border);
-            int color = active ? Theme.TEXT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+            int color = active ? Theme.TEXT : first ? Theme.WARN : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
             Icons.drawCentered(tool.icon, bx, by, bx + BUTTON, by + BUTTON, color);
             if (tool == Tool.OPEN_WINDOW
                 && (HiddenStore.INSTANCE.tabCount() > 0 || HiddenStore.INSTANCE.hasHiddenRecipes())) {
@@ -582,6 +622,15 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
                     lines.add(I18n.format("neiextend.tool.hide_tab"));
                     lines.add(EnumChatFormatting.YELLOW + HandlerCatalog.nameOf(gui.getHandler()));
                     lines.add(EnumChatFormatting.GRAY + I18n.format("neiextend.tool.hide_tab_text"));
+                    break;
+                case PUT_FIRST:
+                    int position = HiddenStore.INSTANCE.pinPosition(gui.getHandler());
+                    lines.add(I18n.format(position >= 0 ? "neiextend.tool.unpin" : "neiextend.tool.pin"));
+                    lines.add(EnumChatFormatting.YELLOW + HandlerCatalog.nameOf(gui.getHandler()));
+                    lines.add(
+                        EnumChatFormatting.GRAY
+                            + (position >= 0 ? I18n.format("neiextend.tool.unpin_text", position + 1)
+                                : I18n.format("neiextend.tool.pin_text")));
                     break;
                 case PICK_RECIPES:
                     lines.add(I18n.format(picking ? "neiextend.tool.pick_on" : "neiextend.tool.pick"));

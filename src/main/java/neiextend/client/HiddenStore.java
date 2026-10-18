@@ -30,7 +30,8 @@ import neiextend.NEIExtend;
 
 /**
  * What the player chose to hide, kept in {@code config/neiextend.json}: whole recipe tabs (by the id of their
- * handler) and single recipes (by their handler and NEI's id of the recipe: its ingredients and result).
+ * handler) and single recipes (by their handler and NEI's id of the recipe: its ingredients and result). It also keeps
+ * the tabs the player put first, in their order.
  * <p>
  * NEI looks recipes up on several threads at once, so the lists are never changed in place: a change makes new ones
  * and swaps them in, and the lookups read whichever ones are current.
@@ -43,15 +44,15 @@ public final class HiddenStore {
         .disableHtmlEscaping()
         .create();
 
-    /** A hidden tab, with what it was called when it was hidden: shown even when its mod is gone. */
-    public static final class HiddenTab {
+    /** A tab hidden or put first, with what it was called then: shown even when its mod is gone. */
+    public static final class SavedTab {
 
         public final String id;
         public final String name;
         public final String mod;
         public final long time;
 
-        HiddenTab(String id, String name, String mod, long time) {
+        SavedTab(String id, String name, String mod, long time) {
             this.id = id;
             this.name = name;
             this.mod = mod;
@@ -100,7 +101,10 @@ public final class HiddenStore {
 
     private File file;
 
-    private volatile Map<String, HiddenTab> tabs = Collections.emptyMap();
+    private volatile Map<String, SavedTab> tabs = Collections.emptyMap();
+    /** The tabs put first, in their order, and where each one is in it. */
+    private volatile List<SavedTab> pinned = Collections.emptyList();
+    private volatile Map<String, Integer> pinPositions = Collections.emptyMap();
     private volatile List<HiddenRecipe> recipes = Collections.emptyList();
     private volatile Map<String, List<HiddenRecipe>> recipesByHandler = Collections.emptyMap();
     /** Counts the changes, so a screen can tell its recipes are out of date. */
@@ -130,12 +134,26 @@ public final class HiddenStore {
         return isTabHidden(HandlerCatalog.idOf(handler));
     }
 
-    public List<HiddenTab> tabs() {
+    public List<SavedTab> tabs() {
         return new ArrayList<>(tabs.values());
     }
 
     public int tabCount() {
         return tabs.size();
+    }
+
+    /** Where the tab is among the ones put first, or -1. */
+    public int pinPosition(String handlerId) {
+        Integer position = handlerId == null ? null : pinPositions.get(handlerId);
+        return position == null ? -1 : position;
+    }
+
+    public int pinPosition(IRecipeHandler handler) {
+        return pinPosition(HandlerCatalog.idOf(handler));
+    }
+
+    public List<SavedTab> pinned() {
+        return pinned;
     }
 
     public List<HiddenRecipe> recipes() {
@@ -177,8 +195,8 @@ public final class HiddenStore {
         if (id == null || tabs.containsKey(id)) {
             return;
         }
-        Map<String, HiddenTab> next = new LinkedHashMap<>(tabs);
-        next.put(id, new HiddenTab(id, HandlerCatalog.nameOf(handler), HandlerCatalog.modOf(handler), now()));
+        Map<String, SavedTab> next = new LinkedHashMap<>(tabs);
+        next.put(id, new SavedTab(id, HandlerCatalog.nameOf(handler), HandlerCatalog.modOf(handler), now()));
         tabs = Collections.unmodifiableMap(next);
         changed();
     }
@@ -187,7 +205,7 @@ public final class HiddenStore {
         if (!tabs.containsKey(id)) {
             return;
         }
-        Map<String, HiddenTab> next = new LinkedHashMap<>(tabs);
+        Map<String, SavedTab> next = new LinkedHashMap<>(tabs);
         next.remove(id);
         tabs = Collections.unmodifiableMap(next);
         changed();
@@ -199,6 +217,62 @@ public final class HiddenStore {
         }
         tabs = Collections.emptyMap();
         changed();
+    }
+
+    /** Puts the tab first of all ({@code position} 0), last of the ones put first (-1), or anywhere between. */
+    public synchronized void pin(IRecipeHandler handler, int position) {
+        String id = HandlerCatalog.idOf(handler);
+        if (id == null) {
+            return;
+        }
+        List<SavedTab> next = new ArrayList<>(pinned);
+        next.removeIf(tab -> tab.id.equals(id));
+        SavedTab tab = new SavedTab(id, HandlerCatalog.nameOf(handler), HandlerCatalog.modOf(handler), now());
+        next.add(position < 0 || position > next.size() ? next.size() : position, tab);
+        setPinned(next);
+        changed();
+    }
+
+    public synchronized void unpin(String id) {
+        List<SavedTab> next = new ArrayList<>(pinned);
+        if (next.removeIf(tab -> tab.id.equals(id))) {
+            setPinned(next);
+            changed();
+        }
+    }
+
+    /** Moves a tab put first to another place among them. */
+    public synchronized void movePin(String id, int position) {
+        int from = pinPosition(id);
+        if (from < 0) {
+            return;
+        }
+        List<SavedTab> next = new ArrayList<>(pinned);
+        SavedTab tab = next.remove(from);
+        int to = Math.max(0, Math.min(position, next.size()));
+        if (to == from) {
+            return;
+        }
+        next.add(to, tab);
+        setPinned(next);
+        changed();
+    }
+
+    public synchronized void unpinAll() {
+        if (pinned.isEmpty()) {
+            return;
+        }
+        setPinned(new ArrayList<>());
+        changed();
+    }
+
+    private void setPinned(List<SavedTab> next) {
+        Map<String, Integer> positions = new HashMap<>();
+        for (int i = 0; i < next.size(); i++) {
+            positions.put(next.get(i).id, i);
+        }
+        pinPositions = positions;
+        pinned = Collections.unmodifiableList(next);
     }
 
     /** Hides the recipe; returns what was hidden (for taking it back), or null when it can't be told apart. */
@@ -270,14 +344,23 @@ public final class HiddenStore {
         try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
             JsonObject root = new JsonParser().parse(reader)
                 .getAsJsonObject();
-            Map<String, HiddenTab> loadedTabs = new LinkedHashMap<>();
+            Map<String, SavedTab> loadedTabs = new LinkedHashMap<>();
             for (JsonElement element : array(root, "hiddenTabs")) {
                 JsonObject tab = element.getAsJsonObject();
                 String id = string(tab, "id", null);
                 if (id != null) {
                     loadedTabs.put(
                         id,
-                        new HiddenTab(id, string(tab, "name", id), string(tab, "mod", "?"), number(tab, "time")));
+                        new SavedTab(id, string(tab, "name", id), string(tab, "mod", "?"), number(tab, "time")));
+                }
+            }
+            List<SavedTab> loadedPinned = new ArrayList<>();
+            for (JsonElement element : array(root, "firstTabs")) {
+                JsonObject tab = element.getAsJsonObject();
+                String id = string(tab, "id", null);
+                if (id != null) {
+                    loadedPinned
+                        .add(new SavedTab(id, string(tab, "name", id), string(tab, "mod", "?"), number(tab, "time")));
                 }
             }
             List<HiddenRecipe> loadedRecipes = new ArrayList<>();
@@ -303,8 +386,13 @@ public final class HiddenStore {
             }
             tabs = Collections.unmodifiableMap(loadedTabs);
             setRecipes(loadedRecipes);
+            setPinned(loadedPinned);
             revision++;
-            NEIExtend.LOG.info("Loaded {} hidden tabs and {} hidden recipes", loadedTabs.size(), loadedRecipes.size());
+            NEIExtend.LOG.info(
+                "Loaded {} hidden tabs, {} hidden recipes and {} tabs put first",
+                loadedTabs.size(),
+                loadedRecipes.size(),
+                loadedPinned.size());
         } catch (Exception e) {
             NEIExtend.LOG.error("Could not read {}; nothing is hidden", file, e);
         }
@@ -315,16 +403,8 @@ public final class HiddenStore {
             return;
         }
         JsonObject root = new JsonObject();
-        JsonArray tabArray = new JsonArray();
-        for (HiddenTab tab : tabs.values()) {
-            JsonObject json = new JsonObject();
-            json.addProperty("id", tab.id);
-            json.addProperty("name", tab.name);
-            json.addProperty("mod", tab.mod);
-            json.addProperty("time", tab.time);
-            tabArray.add(json);
-        }
-        root.add("hiddenTabs", tabArray);
+        root.add("hiddenTabs", tabArray(tabs.values()));
+        root.add("firstTabs", tabArray(pinned));
         JsonArray recipeArray = new JsonArray();
         for (HiddenRecipe recipe : recipes) {
             JsonObject json = new JsonObject();
@@ -349,6 +429,19 @@ public final class HiddenStore {
         } catch (IOException e) {
             NEIExtend.LOG.error("Could not save {}", file, e);
         }
+    }
+
+    private static JsonArray tabArray(Iterable<SavedTab> list) {
+        JsonArray array = new JsonArray();
+        for (SavedTab tab : list) {
+            JsonObject json = new JsonObject();
+            json.addProperty("id", tab.id);
+            json.addProperty("name", tab.name);
+            json.addProperty("mod", tab.mod);
+            json.addProperty("time", tab.time);
+            array.add(json);
+        }
+        return array;
     }
 
     private static JsonArray array(JsonObject json, String key) {
