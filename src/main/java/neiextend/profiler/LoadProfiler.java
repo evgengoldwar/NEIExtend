@@ -124,7 +124,11 @@ public final class LoadProfiler {
 
     public static void milestone(String name) {
         if (!isActive()) return;
-        Milestone m = new Milestone(name, System.nanoTime(), Thread.currentThread().getName());
+        Milestone m = new Milestone(
+            name,
+            System.nanoTime(),
+            Thread.currentThread()
+                .getName());
         milestones.add(m);
         LOG.info(
             String.format(
@@ -242,8 +246,10 @@ public final class LoadProfiler {
     public static void onReloadListener(Object listener, long nanos) {
         if (!isActive()) return;
         String context = reloadStart != 0 ? "reload #" + reloadCount : "register";
-        String name = context + " " + (listener == null ? "null" : listener.getClass()
-            .getName());
+        String name = context + " "
+            + (listener == null ? "null"
+                : listener.getClass()
+                    .getName());
         reloadListenerTimes.add(new TimedEntry(name, nanos));
         if (nanos >= SLOW_RELOAD_LISTENER_NANOS) {
             LOG.info(String.format(Locale.ROOT, "Reload listener %s took %.1f ms", name, toMillis(nanos)));
@@ -328,11 +334,8 @@ public final class LoadProfiler {
                 + System.getProperty("java.vendor")
                 + ")");
         out.println(
-            "OS:             " + System.getProperty("os.name")
-                + " "
-                + System.getProperty("os.version")
-                + " "
-                + System.getProperty("os.arch"));
+            "OS:             " + System
+                .getProperty("os.name") + " " + System.getProperty("os.version") + " " + System.getProperty("os.arch"));
         out.println(
             "CPUs:           " + Runtime.getRuntime()
                 .availableProcessors());
@@ -397,8 +400,10 @@ public final class LoadProfiler {
         long all = 0;
         for (Map.Entry<String, Long> e : totals) all += e.getValue();
         out.println("--- Mods sorted by total time in FML events (all phases) -----------------------");
-        out.println(String.format(Locale.ROOT, "Mods: %d, sum of all mod events: %.1f ms", totals.size(), toMillis(all)));
-        StringBuilder header = new StringBuilder(String.format(Locale.ROOT, "%-4s %-36s %10s %6s", "#", "mod", "total ms", "%"));
+        out.println(
+            String.format(Locale.ROOT, "Mods: %d, sum of all mod events: %.1f ms", totals.size(), toMillis(all)));
+        StringBuilder header = new StringBuilder(
+            String.format(Locale.ROOT, "%-4s %-36s %10s %6s", "#", "mod", "total ms", "%"));
         for (String phase : phaseOrder) header.append(String.format(Locale.ROOT, " %12s", trim(phase, 12)));
         out.println(header);
         int i = 1;
@@ -414,8 +419,9 @@ public final class LoadProfiler {
                     all == 0 ? 0 : 100.0 * e.getValue() / all));
             for (String phase : phaseOrder) {
                 Long v = phases.get(phase);
-                line.append(v == null ? String.format(Locale.ROOT, " %12s", "-")
-                    : String.format(Locale.ROOT, " %12.1f", toMillis(v)));
+                line.append(
+                    v == null ? String.format(Locale.ROOT, " %12s", "-")
+                        : String.format(Locale.ROOT, " %12.1f", toMillis(v)));
             }
             out.println(line);
         }
@@ -436,7 +442,8 @@ public final class LoadProfiler {
                 }
             }
             list.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
-            out.println(String.format(Locale.ROOT, "[%s] total %.1f ms over %d mods", phase, toMillis(sum), list.size()));
+            out.println(
+                String.format(Locale.ROOT, "[%s] total %.1f ms over %d mods", phase, toMillis(sum), list.size()));
             for (int i = 0; i < Math.min(20, list.size()); i++) {
                 Map.Entry<String, Long> e = list.get(i);
                 out.println(
@@ -459,7 +466,13 @@ public final class LoadProfiler {
         }
         long sum = 0;
         for (TimedEntry e : list) sum += e.nanos;
-        out.println(String.format(Locale.ROOT, "Reloads: %d, listeners called: %d, total %.1f ms", reloadCount, list.size(), toMillis(sum)));
+        out.println(
+            String.format(
+                Locale.ROOT,
+                "Reloads: %d, listeners called: %d, total %.1f ms",
+                reloadCount,
+                list.size(),
+                toMillis(sum)));
         list.sort((a, b) -> Long.compare(b.nanos, a.nanos));
         for (int i = 0; i < Math.min(40, list.size()); i++) {
             TimedEntry e = list.get(i);
@@ -488,7 +501,8 @@ public final class LoadProfiler {
             out.println("JIT compiler " + jit.getName() + " time: " + jit.getTotalCompilationTime() + " ms");
         }
         ClassLoadingMXBean cl = ManagementFactory.getClassLoadingMXBean();
-        out.println("Classes loaded: " + cl.getLoadedClassCount() + " (total ever " + cl.getTotalLoadedClassCount() + ")");
+        out.println(
+            "Classes loaded: " + cl.getLoadedClassCount() + " (total ever " + cl.getTotalLoadedClassCount() + ")");
         MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
         MemoryUsage heap = mem.getHeapMemoryUsage();
         MemoryUsage nonHeap = mem.getNonHeapMemoryUsage();
@@ -505,7 +519,9 @@ public final class LoadProfiler {
                 "Non-heap (metaspace, code cache): used %d MB, committed %d MB",
                 nonHeap.getUsed() >> 20,
                 nonHeap.getCommitted() >> 20));
-        out.println("Live threads: " + ManagementFactory.getThreadMXBean().getThreadCount());
+        out.println(
+            "Live threads: " + ManagementFactory.getThreadMXBean()
+                .getThreadCount());
         out.println();
     }
 
@@ -554,8 +570,7 @@ public final class LoadProfiler {
                     reloadCount,
                     toMillis(reloadSum) / 1000.0));
         }
-        out.println(
-            "* Compare neiextend-loadprofile-*.csv between runs to measure the effect of every optimisation.");
+        out.println("* Compare neiextend-loadprofile-*.csv between runs to measure the effect of every optimisation.");
         out.println();
     }
 

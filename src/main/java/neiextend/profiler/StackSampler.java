@@ -157,7 +157,8 @@ public final class StackSampler implements Runnable {
                 intervalMs,
                 samples * intervalMs / 1000.0,
                 stateSummary()));
-        out.println("One sample ~ " + intervalMs + " ms. 'self' = method on top of the stack, 'total' = anywhere on it.");
+        out.println(
+            "One sample ~ " + intervalMs + " ms. 'self' = method on top of the stack, 'total' = anywhere on it.");
         writeTop(out, "Top 40 code packages (self time, first non-JDK/library frame)", packages, 40);
         writeTop(out, "Top 60 methods by self time (first non-JDK/library frame)", selfCode, 60);
         writeTop(out, "Top 30 methods by raw self time (including JDK frames)", selfRaw, 30);

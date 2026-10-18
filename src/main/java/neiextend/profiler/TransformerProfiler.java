@@ -32,7 +32,8 @@ public final class TransformerProfiler {
      */
     private static final String[] NEVER_WRAP = { "org.spongepowered.",
         "cpw.mods.fml.common.asm.transformers.EventSubscriptionTransformer",
-        "cpw.mods.fml.common.asm.transformers.TerminalTransformer", "cpw.mods.fml.common.asm.transformers.DeobfuscationTransformer" };
+        "cpw.mods.fml.common.asm.transformers.TerminalTransformer",
+        "cpw.mods.fml.common.asm.transformers.DeobfuscationTransformer" };
 
     private static volatile boolean enabled;
     private static Field transformersField;
@@ -87,7 +88,8 @@ public final class TransformerProfiler {
                 wrapped++;
             }
             if (wrapped > 0) {
-                LoadProfiler.LOG.info("Profiling " + wrapped + " new class transformer(s), " + list.size() + " in total");
+                LoadProfiler.LOG
+                    .info("Profiling " + wrapped + " new class transformer(s), " + list.size() + " in total");
             }
         } catch (Throwable t) {
             enabled = false;
@@ -150,7 +152,8 @@ public final class TransformerProfiler {
     static void writeReport(PrintWriter out) {
         out.println("--- Class transformers (self time, nested class loading excluded) --------------");
         if (stats.isEmpty()) {
-            out.println(enabled ? "No data." : "Disabled (-Dneiextend.profiler.transformers=false or wrapping failed).");
+            out.println(
+                enabled ? "No data." : "Disabled (-Dneiextend.profiler.transformers=false or wrapping failed).");
             out.println();
             return;
         }
@@ -162,7 +165,17 @@ public final class TransformerProfiler {
                 LoadProfiler.toMillis(total),
                 perClassNanos.size(),
                 skipped));
-        out.println(String.format(Locale.ROOT, "%-4s %-70s %10s %6s %8s %9s  %s", "#", "transformer", "self ms", "%", "calls", "max ms", "slowest class"));
+        out.println(
+            String.format(
+                Locale.ROOT,
+                "%-4s %-70s %10s %6s %8s %9s  %s",
+                "#",
+                "transformer",
+                "self ms",
+                "%",
+                "calls",
+                "max ms",
+                "slowest class"));
         int i = 1;
         for (Map.Entry<String, Stat> e : sortedStats()) {
             Stat s = e.getValue();
@@ -181,10 +194,22 @@ public final class TransformerProfiler {
         out.println();
         out.println("Top 50 classes by total transformation time:");
         List<Map.Entry<String, AtomicLong>> classes = new ArrayList<>(perClassNanos.entrySet());
-        classes.sort((a, b) -> Long.compare(b.getValue().get(), a.getValue().get()));
+        classes.sort(
+            (a, b) -> Long.compare(
+                b.getValue()
+                    .get(),
+                a.getValue()
+                    .get()));
         for (int j = 0; j < Math.min(50, classes.size()); j++) {
             Map.Entry<String, AtomicLong> e = classes.get(j);
-            out.println(String.format(Locale.ROOT, "    %-90s %9.2f ms", LoadProfiler.trim(e.getKey(), 90), LoadProfiler.toMillis(e.getValue().get())));
+            out.println(
+                String.format(
+                    Locale.ROOT,
+                    "    %-90s %9.2f ms",
+                    LoadProfiler.trim(e.getKey(), 90),
+                    LoadProfiler.toMillis(
+                        e.getValue()
+                            .get())));
         }
         out.println();
     }
