@@ -1,0 +1,55 @@
+key.categories.neiextend=NEIExtend
+key.neiextend.open=Открыть NEIExtend
+neiextend.key.none=не назначена
+
+neiextend.gui.subtitle=Скройте ненужные вкладки и рецепты NEI
+neiextend.page.tabs=Вкладки
+neiextend.page.recipes=Рецепты
+neiextend.page.help=Справка
+neiextend.search=Поиск по названию, моду или id...
+
+neiextend.tool.hide_tab=Скрыть эту вкладку
+neiextend.tool.hide_tab_text=Она больше не появится в NEI. Вернуть её можно в окне NEIExtend.
+neiextend.tool.pick=Скрыть рецепты
+neiextend.tool.pick_on=Скрытие рецептов: включено
+neiextend.tool.pick_text=Включите и щёлкайте по рецептам, которые нужно скрыть. ПКМ - выйти.
+neiextend.tool.window=NEIExtend
+neiextend.tool.window_text=Скрыто: вкладок - %d, рецептов - %d. Откройте список, чтобы вернуть их.
+neiextend.pick.hint=Щёлкните по рецепту, чтобы скрыть его - ПКМ: выйти
+neiextend.pick.recipe=Щёлкните, чтобы скрыть этот рецепт
+neiextend.toast.tab_hidden=Вкладка «%s» скрыта
+neiextend.toast.recipe_hidden=Рецепт скрыт во вкладке «%s»
+neiextend.toast.undo=Отменить
+neiextend.toast.undo_tip=Вернуть обратно
+
+neiextend.filter.all=Все %d
+neiextend.filter.visible=Видимые %d
+neiextend.filter.hidden=Скрытые %d
+neiextend.show_all.tabs=Показать все вкладки
+neiextend.show_all.recipes=Вернуть все рецепты
+neiextend.show_all.confirm=Точно? Нажмите ещё раз
+neiextend.tabs.missing=мода нет в игре
+neiextend.tabs.tip_shown=Показывается в NEI. Щёлкните, чтобы скрыть.
+neiextend.tabs.tip_hidden=Скрыта из NEI. Щёлкните, чтобы вернуть.
+neiextend.tag.crafting=Показывает рецепты (R)
+neiextend.tag.usage=Показывает применения (U)
+neiextend.recipes.unknown=Неизвестный предмет
+neiextend.recipes.in_tab=во вкладке «%s»
+neiextend.recipes.restore=Вернуть
+neiextend.recipes.restore_tip=Снова показывать этот рецепт в NEI
+neiextend.empty.search=Ничего не найдено
+neiextend.empty.tabs=В NEI пока нет вкладок
+neiextend.empty.recipes=Скрытых рецептов пока нет
+neiextend.empty.recipes_text=Откройте рецепты в NEI, нажмите кнопку с прицелом справа от окна и щёлкните по ненужным рецептам.
+neiextend.note.tabs=Вкладок: %d из %d
+neiextend.note.recipes=Скрытых рецептов: %d
+neiextend.note.file=config/neiextend.json
+
+neiextend.help.tab=Скрыть вкладку
+neiextend.help.tab_text=Откройте рецепты (R) или применения (U) любого предмета. Справа от окна NEI есть маленькая панель: перечёркнутый глаз скрывает показанную вкладку - сразу для всех предметов. Или выключите её переключатель на странице «Вкладки» здесь.
+neiextend.help.recipe=Скрыть рецепт
+neiextend.help.recipe_text=Нажмите прицел на той же панели и щёлкайте по ненужным рецептам: каждый пропадает сразу. ПКМ или повторное нажатие на прицел - выйти. Вкладка, в которой не осталось рецептов, тоже пропадает.
+neiextend.help.restore=Вернуть
+neiextend.help.restore_text=Сразу после скрытия под окном NEI есть кнопка «Отменить». Позже всё скрытое есть в списках здесь: включите переключатель вкладки или нажмите «Вернуть» у рецепта.
+neiextend.help.about=Клавиша и файлы
+neiextend.help.about_text=Это окно: шестерёнка на панели NEI или клавиша в настройках управления (сейчас: %s). Всё хранится в config/neiextend.json на вашем компьютере: мод только клиентский и работает на любом сервере.

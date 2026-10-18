@@ -1,0 +1,55 @@
+key.categories.neiextend=NEIExtend
+key.neiextend.open=Open NEIExtend
+neiextend.key.none=not set
+
+neiextend.gui.subtitle=Hide the NEI tabs and recipes you don't need
+neiextend.page.tabs=Tabs
+neiextend.page.recipes=Recipes
+neiextend.page.help=Help
+neiextend.search=Search by name, mod or id...
+
+neiextend.tool.hide_tab=Hide this tab
+neiextend.tool.hide_tab_text=It won't show up in NEI again. Bring it back in the NEIExtend window.
+neiextend.tool.pick=Hide recipes
+neiextend.tool.pick_on=Hide recipes: on
+neiextend.tool.pick_text=Turn it on, then click the recipes to hide. Right click to stop.
+neiextend.tool.window=NEIExtend
+neiextend.tool.window_text=Hidden: %d tabs, %d recipes. Open the list to bring them back.
+neiextend.pick.hint=Click a recipe to hide it - right click to stop
+neiextend.pick.recipe=Click to hide this recipe
+neiextend.toast.tab_hidden=Tab "%s" hidden
+neiextend.toast.recipe_hidden=Recipe hidden in "%s"
+neiextend.toast.undo=Undo
+neiextend.toast.undo_tip=Show it again
+
+neiextend.filter.all=All %d
+neiextend.filter.visible=Shown %d
+neiextend.filter.hidden=Hidden %d
+neiextend.show_all.tabs=Show all tabs
+neiextend.show_all.recipes=Show all recipes
+neiextend.show_all.confirm=Sure? Click again
+neiextend.tabs.missing=its mod is not in the game
+neiextend.tabs.tip_shown=Shown in NEI. Click to hide it.
+neiextend.tabs.tip_hidden=Hidden from NEI. Click to show it again.
+neiextend.tag.crafting=Shows recipes (R)
+neiextend.tag.usage=Shows uses (U)
+neiextend.recipes.unknown=Unknown item
+neiextend.recipes.in_tab=in "%s"
+neiextend.recipes.restore=Show
+neiextend.recipes.restore_tip=Show this recipe in NEI again
+neiextend.empty.search=Nothing found
+neiextend.empty.tabs=NEI has no tabs yet
+neiextend.empty.recipes=No hidden recipes yet
+neiextend.empty.recipes_text=Open recipes in NEI, press the crosshair button on the right of the window and click the recipes you don't need.
+neiextend.note.tabs=%d of %d tabs
+neiextend.note.recipes=%d hidden recipes
+neiextend.note.file=config/neiextend.json
+
+neiextend.help.tab=Hide a tab
+neiextend.help.tab_text=Open recipes (R) or uses (U) of any item. On the right of NEI's window there is a small bar: the crossed eye hides the tab shown, for every item. Or flip its switch on the Tabs page here.
+neiextend.help.recipe=Hide a recipe
+neiextend.help.recipe_text=Press the crosshair on that bar, then click the recipes you don't want: each one goes at once. Right click or press the crosshair again to stop. A tab left without recipes goes away too.
+neiextend.help.restore=Bring it back
+neiextend.help.restore_text=Right after hiding, "Undo" under NEI's window takes it back. Later on, everything hidden is listed here: flip a tab's switch or press "Show" next to a recipe.
+neiextend.help.about=Key and files
+neiextend.help.about_text=This window: the gear on NEI's bar, or the key in Controls (now: %s). It all stays in config/neiextend.json on your computer: the mod is client-only and works on any server.
