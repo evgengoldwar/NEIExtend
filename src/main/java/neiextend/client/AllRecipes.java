@@ -1,5 +1,6 @@
 package neiextend.client;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -31,7 +32,8 @@ import neiextend.mixins.late.AccessorGuiUsageRecipe;
  * opens even when the tab is hidden; Escape comes back to the screen it was opened from.
  * <p>
  * Some tabs can't list all their recipes at once: they only answer for one item (NEI's own "all" shows nothing for
- * them). Those are asked about every item of the game instead, the ones hidden in NEI too, and what they find is
+ * them, or fails). Those are asked about every item of the game instead, the ones hidden in NEI too, and what they find
+ * is
  * put together in one tab.
  */
 public final class AllRecipes {
@@ -78,9 +80,9 @@ public final class AllRecipes {
         } catch (Throwable t) {
             NEIExtend.LOG.warn("Could not load all recipes of {}", HandlerCatalog.idOf(handler), t);
         }
-        if ((all == null || all.numRecipes() == 0) && handler instanceof TemplateRecipeHandler) {
+        if (all == null || all.numRecipes() == 0) {
             try {
-                all = byItems((TemplateRecipeHandler) handler, crafting);
+                all = byItems(handler, crafting);
             } catch (Throwable t) {
                 NEIExtend.LOG.warn("Could not look up the recipes of {} item by item", HandlerCatalog.idOf(handler), t);
             }
@@ -89,41 +91,70 @@ public final class AllRecipes {
     }
 
     /**
-     * Every recipe (or use) of the handler, found by asking it about each item of NEI's item list, on NEI's lookup
-     * threads; each recipe is kept once, in the order of the item list. Null when it found none.
+     * Every recipe (or use) of the handler, found by asking it about each item (on NEI's lookup threads); each recipe
+     * is kept once, in the order of the items. It works with handlers keeping their recipes in a public list named
+     * {@code arecipes}, as NEI's template and most others do, so the recipes found can be put in one of them. Null
+     * when it found none, or the handler has no such list.
      */
-    private static TemplateRecipeHandler byItems(TemplateRecipeHandler base, boolean crafting)
+    private static IRecipeHandler byItems(IRecipeHandler base, boolean crafting)
         throws InterruptedException, ExecutionException {
+        Field recipes = recipeList(base.getClass());
         List<ItemStack> items = allItems();
-        if (items.isEmpty() || ItemList.forkJoinPool == null) {
+        if (recipes == null || items.isEmpty() || ItemList.forkJoinPool == null) {
             return null;
         }
-        List<TemplateRecipeHandler> found = ItemList.forkJoinPool.submit(
+        List<IRecipeHandler> found = ItemList.forkJoinPool.submit(
             () -> items.parallelStream()
-                .map(stack -> lookUp(base, crafting, stack))
+                .map(stack -> lookUp(base, crafting, "item", stack))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList()))
             .get();
-        TemplateRecipeHandler combined = base.newInstance();
+        // A handler with nothing loaded: asked for recipes of an id no handler knows.
+        IRecipeHandler combined = base instanceof TemplateRecipeHandler ? ((TemplateRecipeHandler) base).newInstance()
+            : lookUp(base, crafting, "neiextend:none");
+        if (combined == null || combined.getClass() != base.getClass()) {
+            return null;
+        }
+        List<Object> into = list(recipes, combined);
+        into.clear();
         Set<String> seen = new HashSet<>();
-        for (TemplateRecipeHandler each : found) {
-            for (int i = 0; i < each.arecipes.size(); i++) {
+        for (IRecipeHandler each : found) {
+            List<Object> from = list(recipes, each);
+            for (int i = 0; i < from.size(); i++) {
                 String key;
                 try {
                     key = RecipeId.of(each, i)
                         .toJsonObject()
                         .toString();
                 } catch (Throwable t) {
-                    key = each.getClass()
-                        .getName() + "#"
-                        + System.identityHashCode(each.arecipes.get(i));
+                    key = "#" + System.identityHashCode(from.get(i));
                 }
                 if (seen.add(key)) {
-                    combined.arecipes.add(each.arecipes.get(i));
+                    into.add(from.get(i));
                 }
             }
         }
-        return combined.arecipes.isEmpty() ? null : combined;
+        return combined.numRecipes() > 0 ? combined : null;
+    }
+
+    /** The public list of recipes of the handler's class, or null. */
+    private static Field recipeList(Class<?> type) {
+        try {
+            Field field = type.getField("arecipes");
+            return List.class.isAssignableFrom(field.getType()) ? field : null;
+        } catch (NoSuchFieldException e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> list(Field recipes, IRecipeHandler handler) {
+        try {
+            List<Object> list = (List<Object>) recipes.get(handler);
+            return list != null ? list : new ArrayList<>();
+        } catch (IllegalAccessException e) {
+            return new ArrayList<>();
+        }
     }
 
     /**
@@ -167,16 +198,12 @@ public final class AllRecipes {
         return all;
     }
 
-    /** The handler's recipes (or uses) of one item, or null for none. */
-    private static TemplateRecipeHandler lookUp(TemplateRecipeHandler base, boolean crafting, ItemStack stack) {
+    /** A new handler with the recipes (or uses) of the id, or null for none. */
+    private static IRecipeHandler lookUp(IRecipeHandler base, boolean crafting, String id, Object... args) {
         try {
-            TemplateRecipeHandler handler = base.newInstance();
-            if (crafting) {
-                handler.loadCraftingRecipes("item", stack);
-            } else {
-                handler.loadUsageRecipes("item", stack);
-            }
-            return handler.arecipes.isEmpty() ? null : handler;
+            IRecipeHandler handler = crafting ? ((ICraftingHandler) base).getRecipeHandler(id, args)
+                : ((IUsageHandler) base).getUsageHandler(id, args);
+            return handler != null && (handler.numRecipes() > 0 || "neiextend:none".equals(id)) ? handler : null;
         } catch (Throwable t) {
             return null;
         }
