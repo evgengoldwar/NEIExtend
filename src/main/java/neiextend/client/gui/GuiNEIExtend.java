@@ -51,6 +51,8 @@ public class GuiNEIExtend extends ScaledScreen {
     private static final int MENU = 96, PAGE_HEIGHT = 25;
     private static final int TAB_ROW = 26, RECIPE_ROW = 30, CONTROLS = 18, SWITCH = 24, NOTE = 14;
     private static final int ORDER_BUTTON = 16;
+    /** Widths the search field keeps between. */
+    private static final int MIN_SEARCH = 90, MAX_SEARCH = 170;
     private static final int RESTORE_WIDTH = 74, INGREDIENT = 14, MAX_INGREDIENTS = 9;
     /** How long a "show everything" waits for the second click that confirms it (ms). */
     private static final long CONFIRM_MS = 3000, STATUS_MS = 3000;
@@ -180,6 +182,11 @@ public class GuiNEIExtend extends ScaledScreen {
     private FlatTextField search;
     private FlatButton showAll;
     private long confirmUntil;
+    /** How wide the search field is, as the row of controls was last laid out. */
+    private int searchWidth = MAX_SEARCH;
+    /** The button on the right of the controls shows only its icon: its text is its tooltip. */
+    private boolean showAllCompact;
+    private String showAllLabel;
     /** A short message in the note at the bottom (a tab that could not be opened), until when it shows. */
     private String status;
     private long statusUntil;
@@ -219,14 +226,7 @@ public class GuiNEIExtend extends ScaledScreen {
         listTop = contentTop + CONTROLS + 8;
         listBottom = contentBottom - NOTE;
 
-        String text = search == null ? "" : search.getText();
-        boolean focused = search == null || search.isFocused();
-        search = new FlatTextField(fontRendererObj, contentLeft, contentTop, 170, CONTROLS);
-        search.setMaxStringLength(64);
-        search.setText(text);
-        search.setFocused(focused && usesSearch());
-        search.setHint(I18n.format("neiextend.search"))
-            .setOnCleared(this::rebuild);
+        makeSearch(searchWidth, search == null || search.isFocused());
 
         buttonList.clear();
         buttonList.add(WindowHeader.closeButton(ID_CLOSE, left + WIDTH, top));
@@ -234,6 +234,51 @@ public class GuiNEIExtend extends ScaledScreen {
         showAll.icon = Icons.SMALL_EYE;
         buttonList.add(showAll);
         rebuild();
+    }
+
+    /** The search field at the width given, keeping what is typed in it. */
+    private void makeSearch(int width, boolean focused) {
+        String text = search == null ? "" : search.getText();
+        int cursor = search == null ? text.length() : search.getCursorPosition();
+        search = new FlatTextField(fontRendererObj, contentLeft, contentTop, width, CONTROLS);
+        search.setMaxStringLength(64);
+        search.setText(text);
+        search.setCursorPosition(Math.min(cursor, text.length()));
+        search.setFocused(focused && usesSearch());
+        search.setHint(I18n.format("neiextend.search"))
+            .setOnCleared(this::rebuild);
+    }
+
+    /**
+     * Lays the row of controls over the list out for what it holds now (its texts change with the counts, the page and
+     * the language): the button on the right as wide as its text, the filters after the search field, which gets
+     * narrower to leave them room. When even so they don't fit, the button shows only its icon.
+     */
+    private void layoutControls() {
+        String label = showAll.displayString;
+        int full = 6 + Icons.width(showAll.icon) + 5 + fontRendererObj.getStringWidth(label) + 8;
+        int filters = 0;
+        if (page == Page.TABS) {
+            for (Filter each : Filter.values()) {
+                filters += fontRendererObj.getStringWidth(filterLabel(each)) + 16;
+            }
+            filters += 8;
+        }
+        int room = contentRight - contentLeft - filters - 8;
+        int buttonWidth = full;
+        showAllCompact = room - full < MIN_SEARCH;
+        if (showAllCompact) {
+            buttonWidth = CONTROLS + 4;
+            showAll.displayString = "";
+        }
+        showAll.setWidth(buttonWidth);
+        showAll.iconSlot = showAllCompact ? buttonWidth - 12 : 0;
+        showAll.xPosition = contentRight - buttonWidth;
+        int width = Math.max(MIN_SEARCH, Math.min(MAX_SEARCH, room - buttonWidth));
+        if (width != searchWidth) {
+            searchWidth = width;
+            makeSearch(width, search.isFocused());
+        }
     }
 
     /** Fills the list of the page again from what is searched and filtered. */
@@ -369,7 +414,7 @@ public class GuiNEIExtend extends ScaledScreen {
     /** The filter buttons: where each starts, and where the last ends. */
     private int[] filterEdges() {
         int[] edges = new int[Filter.values().length + 1];
-        int x = contentLeft + 170 + 8;
+        int x = contentLeft + searchWidth + 8;
         for (Filter each : Filter.values()) {
             edges[each.ordinal()] = x;
             x += fontRendererObj.getStringWidth(filterLabel(each)) + 16;
@@ -751,6 +796,10 @@ public class GuiNEIExtend extends ScaledScreen {
             confirming ? "neiextend.show_all.confirm"
                 : page == Page.TABS ? "neiextend.show_all.tabs"
                     : page == Page.ORDER ? "neiextend.show_all.order" : "neiextend.show_all.recipes");
+        showAllLabel = showAll.displayString;
+        if (page != Page.HELP) {
+            layoutControls();
+        }
 
         if (page == Page.HELP) {
             drawHelp();
@@ -779,6 +828,12 @@ public class GuiNEIExtend extends ScaledScreen {
         if (lookup != null) {
             drawLookup(lookup, mouseX, mouseY);
             return;
+        }
+        if (showAllCompact && showAll.visible
+            && hoverText == null
+            && hoverStack == null
+            && showAll.isMouseOver(mouseX, mouseY)) {
+            hoverText = showAllLabel;
         }
         if (hoverStack != null) {
             List<String> lines = new ArrayList<>();
