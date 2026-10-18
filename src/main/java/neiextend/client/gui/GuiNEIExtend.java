@@ -22,6 +22,7 @@ import codechicken.nei.drawable.DrawableResource;
 import codechicken.nei.recipe.GuiRecipe;
 import codechicken.nei.recipe.HandlerInfo;
 import neiextend.Tags;
+import neiextend.client.AllRecipes;
 import neiextend.client.HandlerCatalog;
 import neiextend.client.HiddenStore;
 import neiextend.client.KeyHandler;
@@ -48,7 +49,7 @@ public class GuiNEIExtend extends ScaledScreen {
     private static final int TAB_ROW = 26, RECIPE_ROW = 30, CONTROLS = 18, SWITCH = 24, NOTE = 14;
     private static final int RESTORE_WIDTH = 74, INGREDIENT = 14, MAX_INGREDIENTS = 9;
     /** How long a "show everything" waits for the second click that confirms it (ms). */
-    private static final long CONFIRM_MS = 3000;
+    private static final long CONFIRM_MS = 3000, STATUS_MS = 3000;
     private static final int ID_CLOSE = 900, ID_SHOW_ALL = 1;
 
     /** The pages of the menu, in its order. */
@@ -166,6 +167,9 @@ public class GuiNEIExtend extends ScaledScreen {
     private FlatTextField search;
     private FlatButton showAll;
     private long confirmUntil;
+    /** A short message in the note at the bottom (a tab that could not be opened), until when it shows. */
+    private String status;
+    private long statusUntil;
     /** What the tooltip under the mouse says, set while drawing and drawn over everything. */
     private String hoverText;
     private ItemStack hoverStack;
@@ -389,6 +393,13 @@ public class GuiNEIExtend extends ScaledScreen {
             search.mouseClicked(mouseX, mouseY, button);
         }
         super.mouseClicked(mouseX, mouseY, button);
+        if (button == 1 && page != Page.HELP) {
+            int index = rowAt(mouseX, mouseY);
+            if (index >= 0) {
+                openAllRecipes(index);
+            }
+            return;
+        }
         if (button != 0 || page == Page.HELP) {
             return;
         }
@@ -444,6 +455,23 @@ public class GuiNEIExtend extends ScaledScreen {
                 click();
                 rebuild();
             }
+        }
+    }
+
+    /** Opens the tab of the row with all its recipes (a right click on it). */
+    private void openAllRecipes(int index) {
+        String id = page == Page.TABS ? tabRows.get(index).id : recipeRows.get(index).recipe.handlerId;
+        HandlerCatalog.Entry entry = null;
+        for (HandlerCatalog.Entry each : catalog) {
+            if (each.id.equals(id)) {
+                entry = each;
+                break;
+            }
+        }
+        click();
+        if (entry == null || !AllRecipes.open(entry.handler)) {
+            status = I18n.format(entry == null ? "neiextend.open.missing" : "neiextend.open.empty");
+            statusUntil = System.currentTimeMillis() + STATUS_MS;
         }
     }
 
@@ -884,12 +912,19 @@ public class GuiNEIExtend extends ScaledScreen {
             color);
         if (over) {
             hoverText = I18n.format("neiextend.recipes.restore_tip");
+        } else if (hovered && hoverText == null && hoverStack == null) {
+            hoverText = row.name + "\n" + I18n.format("neiextend.recipes.tip");
         }
     }
 
     /** At the bottom: how much the list shows, and where it is all kept. */
     private void drawNote() {
         int y = contentBottom - 9;
+        if (status != null && System.currentTimeMillis() < statusUntil) {
+            Icons.draw(Icons.SMALL_WARN, contentLeft + 1, y, Theme.WARN);
+            fontRendererObj.drawString(status, contentLeft + 11, y, Theme.WARN);
+            return;
+        }
         String count = page == Page.TABS ? I18n.format("neiextend.note.tabs", tabRows.size(), catalog.size())
             : I18n.format("neiextend.note.recipes", recipeRows.size());
         fontRendererObj.drawString(count, contentLeft + 1, y, Theme.TEXT_DISABLED);

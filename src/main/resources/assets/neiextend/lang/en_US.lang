@@ -29,8 +29,8 @@ neiextend.show_all.tabs=Show all tabs
 neiextend.show_all.recipes=Show all recipes
 neiextend.show_all.confirm=Sure? Click again
 neiextend.tabs.missing=its mod is not in the game
-neiextend.tabs.tip_shown=Shown in NEI. Click to hide it.
-neiextend.tabs.tip_hidden=Hidden from NEI. Click to show it again.
+neiextend.tabs.tip_shown=Shown in NEI. Left click to hide it, right click to open all its recipes.
+neiextend.tabs.tip_hidden=Hidden from NEI. Left click to show it again, right click to open all its recipes.
 neiextend.tag.crafting=Shows recipes (R)
 neiextend.tag.usage=Shows uses (U)
 neiextend.recipes.unknown=Unknown item
@@ -46,10 +46,14 @@ neiextend.note.recipes=%d hidden recipes
 neiextend.note.file=config/neiextend.json
 
 neiextend.help.tab=Hide a tab
-neiextend.help.tab_text=Open recipes (R) or uses (U) of any item. On the right of NEI's window there is a small bar: the crossed eye hides the tab shown, for every item. Or flip its switch on the Tabs page here.
+neiextend.help.tab_text=Open recipes (R) or uses (U) of any item. On the right of NEI's window there is a small bar: the crossed eye hides the tab shown, for every item. Or flip its switch on the Tabs page here. Right click a tab in the list to open it with all its recipes - even a hidden one; Escape comes back here.
 neiextend.help.recipe=Hide a recipe
 neiextend.help.recipe_text=Press the crosshair on that bar, then click the recipes you don't want: each one goes at once. Right click or press the crosshair again to stop. A tab left without recipes goes away too.
 neiextend.help.restore=Bring it back
 neiextend.help.restore_text=Right after hiding, "Undo" under NEI's window takes it back. Later on, everything hidden is listed here: flip a tab's switch or press "Show" next to a recipe.
 neiextend.help.about=Key and files
 neiextend.help.about_text=This window: the gear on NEI's bar, or the key in Controls (now: %s). It all stays in config/neiextend.json on your computer: the mod is client-only and works on any server.
+
+neiextend.recipes.tip=Right click to open this recipe's tab with all its recipes
+neiextend.open.empty=This tab has no recipes to show
+neiextend.open.missing=This tab is not in the game

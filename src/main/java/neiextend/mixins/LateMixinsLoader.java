@@ -31,6 +31,8 @@ public class LateMixinsLoader implements ILateMixinLoader {
             mixins.add("MixinRecipeHandlerQuery");
             mixins.add("MixinGuiCraftingRecipe");
             mixins.add("MixinGuiUsageRecipe");
+            mixins.add("AccessorGuiCraftingRecipe");
+            mixins.add("AccessorGuiUsageRecipe");
         }
         return mixins;
     }

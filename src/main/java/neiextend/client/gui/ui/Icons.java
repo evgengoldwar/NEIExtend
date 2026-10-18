@@ -55,6 +55,8 @@ public final class Icons {
         "......." };
     public static final String[] SMALL_MOUSE = { ".#####.", "#..#..#", "#..#..#", "#######", "#.....#", "#.....#",
         ".#####." };
+    public static final String[] SMALL_WARN = { "...#...", "..###..", "..#.#..", ".##.##.", ".##.##.", "#######",
+        "###.###" };
     public static final String[] SMALL_ARROW = { "...#...", "...##..", "#######", "...##..", "...#...", ".......",
         "......." };
 
