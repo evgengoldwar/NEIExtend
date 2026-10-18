@@ -183,6 +183,11 @@ public class GuiNEIExtend extends ScaledScreen {
     /** A short message in the note at the bottom (a tab that could not be opened), until when it shows. */
     private String status;
     private long statusUntil;
+    /** All recipes of a tab being looked up (a right click), shown over the window until done; null for none. */
+    private AllRecipes lookup;
+    private boolean lookupCancelled;
+    /** Where the lookup's cancel button is, as last drawn. */
+    private int cancelX0, cancelY0, cancelX1, cancelY1;
     /** What the tooltip under the mouse says, set while drawing and drawn over everything. */
     private String hoverText;
     private ItemStack hoverStack;
@@ -447,6 +452,13 @@ public class GuiNEIExtend extends ScaledScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (lookup != null) {
+            // The window waits for the lookup: only its cancel button works.
+            if (button == 0 && Theme.inside(mouseX, mouseY, cancelX0, cancelY0, cancelX1, cancelY1)) {
+                cancelLookup();
+            }
+            return;
+        }
         Page clickedPage = button == 0 ? pageAt(mouseX, mouseY) : null;
         if (clickedPage != null) {
             click();
@@ -583,9 +595,25 @@ public class GuiNEIExtend extends ScaledScreen {
             }
         }
         click();
-        if (entry == null || !AllRecipes.open(entry.handler)) {
-            status = I18n.format(entry == null ? "neiextend.open.missing" : "neiextend.open.empty");
-            statusUntil = System.currentTimeMillis() + STATUS_MS;
+        if (entry == null) {
+            showStatus(I18n.format("neiextend.open.missing"));
+            return;
+        }
+        // Looked up on other threads, the window showing how far it got: some tabs are asked about every item.
+        lookup = AllRecipes.start(entry.handler);
+        lookupCancelled = false;
+    }
+
+    private void showStatus(String text) {
+        status = text;
+        statusUntil = System.currentTimeMillis() + STATUS_MS;
+    }
+
+    private void cancelLookup() {
+        if (lookup != null) {
+            lookup.cancel();
+            lookupCancelled = true;
+            click();
         }
     }
 
@@ -630,6 +658,12 @@ public class GuiNEIExtend extends ScaledScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (lookup != null) {
+            if (keyCode == Keyboard.KEY_ESCAPE) {
+                cancelLookup();
+            }
+            return;
+        }
         if (keyCode == Keyboard.KEY_ESCAPE) {
             close();
             return;
@@ -655,6 +689,15 @@ public class GuiNEIExtend extends ScaledScreen {
     @Override
     public void updateScreen() {
         search.updateCursorCounter();
+        if (lookup != null && lookup.finished()) {
+            AllRecipes done = lookup;
+            lookup = null;
+            if (lookupCancelled) {
+                showStatus(I18n.format("neiextend.scan.cancelled"));
+            } else if (!done.show()) {
+                showStatus(I18n.format("neiextend.open.empty"));
+            }
+        }
     }
 
     private void click() {
@@ -733,6 +776,10 @@ public class GuiNEIExtend extends ScaledScreen {
             drawNote();
         }
         super.drawScaled(mouseX, mouseY, partialTicks);
+        if (lookup != null) {
+            drawLookup(lookup, mouseX, mouseY);
+            return;
+        }
         if (hoverStack != null) {
             List<String> lines = new ArrayList<>();
             List<Integer> colors = new ArrayList<>();
@@ -1256,6 +1303,84 @@ public class GuiNEIExtend extends ScaledScreen {
                 shown / (double) (helpHeight - visible),
                 true);
         }
+    }
+
+    /** How far the lookup of all recipes of a tab got, over the window, with a button to cancel it. */
+    private void drawLookup(AllRecipes running, int mouseX, int mouseY) {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(0f, 0f, 200f);
+        Theme.fill(left + 1, top + WindowHeader.HEIGHT, left + WIDTH - 1, top + HEIGHT - 1, 0xC0050A12);
+        int w = 330, h = 98, x0 = left + (WIDTH - w) / 2, y0 = top + (HEIGHT - h) / 2, x1 = x0 + w, y1 = y0 + h;
+        Theme.shadow(x0, y0, x1, y1, 6);
+        Theme.roundBox(x0, y0, x1, y1, 0xF60B1424, Theme.FRAME);
+        Icons.draw(Icons.SMALL_SEARCH, x0 + 10, y0 + 10, Theme.ACCENT);
+        fontRendererObj.drawString(
+            Theme.ellipsize(fontRendererObj, I18n.format("neiextend.scan.title", running.name), w - 32),
+            x0 + 22,
+            y0 + 10,
+            Theme.TEXT);
+
+        AllRecipes.Stage stage = running.stage();
+        String kind = I18n.format(running.crafting() ? "neiextend.scan.recipes" : "neiextend.scan.uses");
+        String what = I18n.format(
+            "neiextend.scan." + stage.name()
+                .toLowerCase(Locale.ROOT),
+            kind);
+        fontRendererObj.drawString(Theme.ellipsize(fontRendererObj, what, w - 24), x0 + 12, y0 + 25, Theme.TEXT_MUTED);
+
+        int bx0 = x0 + 12, bx1 = x1 - 12, by0 = y0 + 40, by1 = by0 + 8;
+        Theme.roundRect(bx0, by0, bx1, by1, 0xFF0B0E12);
+        int total = running.total();
+        boolean counted = stage == AllRecipes.Stage.ITEMS && total > 0;
+        if (counted) {
+            int filled = bx0 + (int) Math.round((bx1 - bx0) * Math.min(1.0, running.done() / (double) total));
+            if (filled > bx0 + 1) {
+                Theme.gradient(bx0 + 1, by0 + 1, filled - 1, by1 - 1, Theme.ACCENT, Theme.ACCENT_DIM);
+            }
+        } else {
+            // Not counted: a short bar running along the track.
+            int span = 70, travel = bx1 - bx0 + span;
+            int at = bx0 - span + (int) (running.millis() % 1500 * travel / 1500);
+            int s0 = Math.max(bx0 + 1, at), s1 = Math.min(bx1 - 1, at + span);
+            if (s1 > s0) {
+                Theme.gradient(s0, by0 + 1, s1, by1 - 1, Theme.ACCENT, Theme.ACCENT_DIM);
+            }
+        }
+
+        String count = counted
+            ? I18n.format("neiextend.scan.progress", running.done(), total, (int) (100L * running.done() / total))
+            : I18n.format("neiextend.scan.time", running.millis() / 1000.0);
+        fontRendererObj.drawString(count, bx0, by1 + 6, Theme.TEXT_MUTED);
+        if (stage == AllRecipes.Stage.ITEMS || stage == AllRecipes.Stage.MERGE) {
+            String found = I18n.format("neiextend.scan.found", running.found());
+            fontRendererObj.drawString(found, bx1 - fontRendererObj.getStringWidth(found), by1 + 6, Theme.SUCCESS);
+        }
+
+        String cancel = I18n.format("neiextend.scan.cancel");
+        cancelX1 = x1 - 12;
+        cancelX0 = cancelX1 - fontRendererObj.getStringWidth(cancel) - 16;
+        cancelY1 = y1 - 8;
+        cancelY0 = cancelY1 - 16;
+        boolean over = Theme.inside(mouseX, mouseY, cancelX0, cancelY0, cancelX1, cancelY1);
+        Theme.roundBox(
+            cancelX0,
+            cancelY0,
+            cancelX1,
+            cancelY1,
+            over ? 0xFF3A2326 : Theme.CONTROL,
+            over ? Theme.DANGER : 0xFF2A3D5C);
+        Theme.centered(
+            fontRendererObj,
+            cancel,
+            (cancelX0 + cancelX1) / 2,
+            cancelY0 + 4,
+            over ? Theme.DANGER : Theme.TEXT);
+        fontRendererObj.drawString(
+            Theme.ellipsize(fontRendererObj, I18n.format("neiextend.scan.hint"), cancelX0 - 8 - bx0),
+            bx0,
+            cancelY0 + 4,
+            Theme.TEXT_DISABLED);
+        GL11.glPopMatrix();
     }
 
     /** A tooltip: its first line bright, the others (after "\n") muted. */
