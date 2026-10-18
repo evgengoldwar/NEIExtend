@@ -1,11 +1,16 @@
 package neiextend.client;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import net.minecraft.util.EnumChatFormatting;
 
@@ -79,11 +84,29 @@ public final class HandlerCatalog {
         }
     }
 
-    /** The id a tab is hidden by: the handler's own id, the one NEI's hiddenhandlers.cfg also uses. */
+    /**
+     * The id a tab is kept by (hidden, put first): the handler's own id, the one NEI's hiddenhandlers.cfg also uses.
+     * Several tabs can share it, as all of GregTech's recipe maps share one handler class with the default id; those
+     * are told apart by their overlay id ({@code gregtech.nei.GTNEIDefaultHandler|gt.recipe.metalbender}).
+     */
     public static String idOf(IRecipeHandler handler) {
         if (handler == null) {
             return null;
         }
+        String id = handlerId(handler);
+        if (!sharedIds().contains(id)) {
+            return id;
+        }
+        String overlay;
+        try {
+            overlay = handler.getOverlayIdentifier();
+        } catch (Throwable t) {
+            overlay = null;
+        }
+        return overlay == null || overlay.isEmpty() || overlay.equals(id) ? id : id + "|" + overlay;
+    }
+
+    private static String handlerId(IRecipeHandler handler) {
         try {
             String id = handler.getHandlerId();
             return id != null ? id
@@ -92,6 +115,50 @@ public final class HandlerCatalog {
         } catch (Throwable t) {
             return handler.getClass()
                 .getName();
+        }
+    }
+
+    /** The handler ids several registered tabs share, and how many tabs there were when they were found. */
+    private static volatile Set<String> sharedIds = Collections.emptySet();
+    private static volatile int sharedIdsFrom = -1;
+
+    private static Set<String> sharedIds() {
+        int count = GuiCraftingRecipe.craftinghandlers.size() + GuiCraftingRecipe.serialCraftingHandlers.size()
+            + GuiUsageRecipe.usagehandlers.size()
+            + GuiUsageRecipe.serialUsageHandlers.size();
+        if (count == sharedIdsFrom) {
+            return sharedIds;
+        }
+        synchronized (HandlerCatalog.class) {
+            if (count != sharedIdsFrom) {
+                Map<String, Set<IRecipeHandler>> byId = new HashMap<>();
+                collect(byId, GuiCraftingRecipe.craftinghandlers);
+                collect(byId, GuiCraftingRecipe.serialCraftingHandlers);
+                collect(byId, GuiUsageRecipe.usagehandlers);
+                collect(byId, GuiUsageRecipe.serialUsageHandlers);
+                Set<String> shared = new HashSet<>();
+                for (Map.Entry<String, Set<IRecipeHandler>> entry : byId.entrySet()) {
+                    if (entry.getValue()
+                        .size() > 1) {
+                        shared.add(entry.getKey());
+                    }
+                }
+                sharedIds = shared;
+                sharedIdsFrom = count;
+            }
+            return sharedIds;
+        }
+    }
+
+    private static void collect(Map<String, Set<IRecipeHandler>> byId, List<? extends IRecipeHandler> handlers) {
+        List<IRecipeHandler> copy;
+        synchronized (handlers) {
+            copy = new ArrayList<>(handlers);
+        }
+        for (IRecipeHandler handler : copy) {
+            // The same handler is often both a recipe and a usage handler: counted once.
+            byId.computeIfAbsent(handlerId(handler), k -> Collections.newSetFromMap(new IdentityHashMap<>()))
+                .add(handler);
         }
     }
 
