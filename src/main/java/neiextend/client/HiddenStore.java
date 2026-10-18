@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -211,6 +212,32 @@ public final class HiddenStore {
         changed();
     }
 
+    /** Hides the tabs at once (all of a mod), saved once. */
+    public synchronized void hideTabs(List<IRecipeHandler> handlers) {
+        Map<String, SavedTab> next = new LinkedHashMap<>(tabs);
+        for (IRecipeHandler handler : handlers) {
+            String id = HandlerCatalog.idOf(handler);
+            if (id != null && !next.containsKey(id)) {
+                next.put(id, new SavedTab(id, HandlerCatalog.nameOf(handler), HandlerCatalog.modOf(handler), now()));
+            }
+        }
+        if (next.size() != tabs.size()) {
+            tabs = Collections.unmodifiableMap(next);
+            changed();
+        }
+    }
+
+    /** Shows the tabs again at once, saved once. */
+    public synchronized void showTabs(Collection<String> ids) {
+        Map<String, SavedTab> next = new LinkedHashMap<>(tabs);
+        next.keySet()
+            .removeAll(ids);
+        if (next.size() != tabs.size()) {
+            tabs = Collections.unmodifiableMap(next);
+            changed();
+        }
+    }
+
     public synchronized void showAllTabs() {
         if (tabs.isEmpty()) {
             return;
@@ -231,6 +258,34 @@ public final class HiddenStore {
         next.add(position < 0 || position > next.size() ? next.size() : position, tab);
         setPinned(next);
         changed();
+    }
+
+    /** Puts the tabs first, after the ones already first, in the order given; saved once. */
+    public synchronized void pinAll(List<IRecipeHandler> handlers) {
+        List<SavedTab> next = new ArrayList<>(pinned);
+        boolean added = false;
+        for (IRecipeHandler handler : handlers) {
+            String id = HandlerCatalog.idOf(handler);
+            if (id != null && pinPosition(id) < 0
+                && next.stream()
+                    .noneMatch(tab -> tab.id.equals(id))) {
+                next.add(new SavedTab(id, HandlerCatalog.nameOf(handler), HandlerCatalog.modOf(handler), now()));
+                added = true;
+            }
+        }
+        if (added) {
+            setPinned(next);
+            changed();
+        }
+    }
+
+    /** Takes the tabs out of the ones put first at once, saved once. */
+    public synchronized void unpin(Collection<String> ids) {
+        List<SavedTab> next = new ArrayList<>(pinned);
+        if (next.removeIf(tab -> ids.contains(tab.id))) {
+            setPinned(next);
+            changed();
+        }
     }
 
     public synchronized void unpin(String id) {
