@@ -1,12 +1,15 @@
 package neiextend.mixins;
 
-import com.gtnewhorizon.gtnhmixins.ILateMixinLoader;
-import com.gtnewhorizon.gtnhmixins.LateMixin;
-import com.gtnewhorizon.gtnhmixins.builders.IMixins;
-
-import javax.annotation.Nonnull;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+
+import javax.annotation.Nonnull;
+
+import com.gtnewhorizon.gtnhmixins.ILateMixinLoader;
+import com.gtnewhorizon.gtnhmixins.LateMixin;
+
+import cpw.mods.fml.relauncher.FMLLaunchHandler;
 
 @LateMixin
 public class LateMixinsLoader implements ILateMixinLoader {
@@ -19,6 +22,18 @@ public class LateMixinsLoader implements ILateMixinLoader {
     @Nonnull
     @Override
     public List<String> getMixins(Set<String> loadedMods) {
-        return IMixins.getLateMixins(Mixins.class, loadedMods);
+        List<String> mixins = new ArrayList<>();
+        // A client mod for NEI: nothing to do on a server or without NEI.
+        if (FMLLaunchHandler.side()
+            .isClient() && loadedMods.contains("NotEnoughItems")) {
+            mixins.add("AccessorGuiRecipe");
+            mixins.add("MixinGuiRecipe");
+            mixins.add("MixinRecipeHandlerQuery");
+            mixins.add("MixinGuiCraftingRecipe");
+            mixins.add("MixinGuiUsageRecipe");
+            mixins.add("AccessorGuiCraftingRecipe");
+            mixins.add("AccessorGuiUsageRecipe");
+        }
+        return mixins;
     }
 }

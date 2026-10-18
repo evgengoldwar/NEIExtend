@@ -5,7 +5,8 @@ on:
   pull_request:
     branches: [ master, main ]
   push:
-    branches: [ master, main ]
+    branches: [ master, main, setup ]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
