@@ -44,6 +44,10 @@ public final class Icons {
     public static final String[] ORDER = { "..#......", ".###.####", "#####....", "..#..####", "..#......", "..#..####",
         "..#......", "..#..####", "........." };
 
+    /** Grouping recipes: cards stacked on each other. */
+    public static final String[] GROUP = { "....#####", "....#...#", "..#####.#", "..#...#.#", "#####.###", "#...#.#..",
+        "#...###..", "#...#....", "#####...." };
+
     // Small icons (7x7).
     public static final String[] SMALL_STAR = { "...#...", "..###..", "#######", ".#####.", "..###..", ".##.##.",
         ".#...#." };

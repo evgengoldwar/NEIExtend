@@ -107,3 +107,11 @@ neiextend.group.hide=Hide all tabs of %s
 neiextend.group.show=Show all tabs of %s
 neiextend.group.fold=Click to fold (Shift: fold every mod)
 neiextend.group.unfold=Click to unfold (Shift: unfold every mod)
+
+neiextend.tool.group=Group recipes by material: off
+neiextend.tool.group_on=Group recipes by material: on
+neiextend.tool.group_text=Recipes of one shape that differ only by material (ingot -> nuggets of iron, gold...) are shown as one recipe going through them. Hover for all variants, Shift+wheel to go through them.
+neiextend.toast.grouped=Recipes grouped by material
+neiextend.toast.ungrouped=Recipe grouping turned off
+neiextend.group.variant=Variant %d of %d - Shift+wheel to change
+neiextend.group.variants=All variants (%d):

@@ -107,3 +107,11 @@ neiextend.group.hide=Скрыть все вкладки «%s»
 neiextend.group.show=Показать все вкладки «%s»
 neiextend.group.fold=Щёлкните, чтобы свернуть (Shift - свернуть все моды)
 neiextend.group.unfold=Щёлкните, чтобы развернуть (Shift - развернуть все моды)
+
+neiextend.tool.group=Группировать рецепты по материалам: выключено
+neiextend.tool.group_on=Группировать рецепты по материалам: включено
+neiextend.tool.group_text=Рецепты одной формы, которые отличаются только материалом (слиток -> самородки железа, золота...), показываются одним рецептом и перелистываются. Наведите - список всех вариантов, Shift+колесо - листать.
+neiextend.toast.grouped=Рецепты сгруппированы по материалам
+neiextend.toast.ungrouped=Группировка рецептов выключена
+neiextend.group.variant=Вариант %d из %d - Shift+колесо: листать
+neiextend.group.variants=Все варианты (%d):

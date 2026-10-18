@@ -108,6 +108,8 @@ public final class HiddenStore {
     private volatile Map<String, Integer> pinPositions = Collections.emptyMap();
     private volatile List<HiddenRecipe> recipes = Collections.emptyList();
     private volatile Map<String, List<HiddenRecipe>> recipesByHandler = Collections.emptyMap();
+    /** Whether recipes differing only by material are shown as one (see {@link RecipeGroups}). */
+    private volatile boolean groupRecipes = true;
     /** Counts the changes, so a screen can tell its recipes are out of date. */
     private volatile int revision;
 
@@ -123,6 +125,17 @@ public final class HiddenStore {
 
     public int revision() {
         return revision;
+    }
+
+    public boolean groupRecipes() {
+        return groupRecipes;
+    }
+
+    public synchronized void setGroupRecipes(boolean value) {
+        if (groupRecipes != value) {
+            groupRecipes = value;
+            changed();
+        }
     }
 
     // Reading, from any thread.
@@ -442,6 +455,10 @@ public final class HiddenStore {
             tabs = Collections.unmodifiableMap(loadedTabs);
             setRecipes(loadedRecipes);
             setPinned(loadedPinned);
+            if (root.has("groupRecipes")) {
+                groupRecipes = root.get("groupRecipes")
+                    .getAsBoolean();
+            }
             revision++;
             NEIExtend.LOG.info(
                 "Loaded {} hidden tabs, {} hidden recipes and {} tabs put first",
@@ -460,6 +477,7 @@ public final class HiddenStore {
         JsonObject root = new JsonObject();
         root.add("hiddenTabs", tabArray(tabs.values()));
         root.add("firstTabs", tabArray(pinned));
+        root.addProperty("groupRecipes", groupRecipes);
         JsonArray recipeArray = new JsonArray();
         for (HiddenRecipe recipe : recipes) {
             JsonObject json = new JsonObject();

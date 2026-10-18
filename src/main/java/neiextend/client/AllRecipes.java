@@ -131,6 +131,7 @@ public final class AllRecipes {
         if (all == null) {
             return false;
         }
+        RecipeGroups.group(all);
         GuiRecipe<?> gui = resultCrafting
             ? AccessorGuiCraftingRecipe
                 .neiextend$create(new ArrayList<>(Collections.singletonList((ICraftingHandler) all)))
