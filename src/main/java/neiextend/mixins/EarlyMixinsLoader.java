@@ -60,7 +60,6 @@ public class EarlyMixinsLoader implements IFMLLoadingPlugin, IEarlyMixinLoader {
         List<String> mixins = new ArrayList<>();
         if (!LoadProfiler.isActive()) return mixins;
         mixins.add("profiler.MixinLoadController_LoadProfiler");
-        mixins.add("profiler.MixinLoader_LoadProfiler");
         if (FMLLaunchHandler.side()
             .isClient()) {
             mixins.add("profiler.MixinMinecraft_LoadProfiler");
