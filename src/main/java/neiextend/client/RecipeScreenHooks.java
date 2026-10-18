@@ -34,7 +34,6 @@ import codechicken.nei.recipe.GuiUsageRecipe;
 import codechicken.nei.recipe.IRecipeHandler;
 import codechicken.nei.recipe.RecipeHandlerRef;
 import codechicken.nei.recipe.TemplateRecipeHandler;
-import codechicken.nei.recipe.widget.RecipeWidget;
 import codechicken.nei.scroll.ScrollContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import neiextend.client.gui.GuiNEIExtend;
@@ -157,14 +156,14 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
     }
 
     /** The recipe under the mouse, or null. */
-    private static RecipeWidget recipeAt(GuiRecipe<?> gui, int mouseX, int mouseY) {
+    private static Widget recipeAt(GuiRecipe<?> gui, int mouseX, int mouseY) {
         ScrollContainer container = container(gui);
         if (container == null || !container.boundsInside()
             .contains(mouseX, mouseY)) {
             return null;
         }
         Widget widget = container.getWidgetUnderMouse(mouseX, mouseY);
-        return widget instanceof RecipeWidget ? (RecipeWidget) widget : null;
+        return RecipeWidgets.refOf(widget) != null ? widget : null;
     }
 
     private static boolean overUndo(Toast toast, int mouseX, int mouseY) {
@@ -204,7 +203,7 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
                 click();
                 return true;
             }
-            RecipeWidget recipe = recipeAt(gui, mouseX, mouseY);
+            Widget recipe = recipeAt(gui, mouseX, mouseY);
             if (recipe != null && button == 0) {
                 hideRecipe(gui, recipe);
                 return true;
@@ -292,8 +291,11 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
         });
     }
 
-    private void hideRecipe(GuiRecipe<?> gui, RecipeWidget widget) {
-        RecipeHandlerRef ref = widget.getRecipeHandlerRef();
+    private void hideRecipe(GuiRecipe<?> gui, Widget widget) {
+        RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
+        if (ref == null) {
+            return;
+        }
         Runnable restore = snapshot(gui);
         HiddenStore.HiddenRecipe hidden = HiddenStore.INSTANCE.hideRecipe(ref.handler, ref.recipeIndex);
         if (hidden == null) {
@@ -476,7 +478,7 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
 
     /** A red frame over the recipe under the mouse, the one a click would hide. */
     private void drawPicked(GuiRecipe<?> gui, int mouseX, int mouseY) {
-        RecipeWidget recipe = recipeAt(gui, mouseX, mouseY);
+        Widget recipe = recipeAt(gui, mouseX, mouseY);
         if (recipe == null) {
             return;
         }
@@ -656,7 +658,7 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
             return new ArrayList<>(Collections.singletonList(I18n.format("neiextend.toast.undo_tip")));
         }
         if (picking) {
-            RecipeWidget recipe = recipeAt(gui, mouseX, mouseY);
+            Widget recipe = recipeAt(gui, mouseX, mouseY);
             if (recipe != null) {
                 List<String> lines = new ArrayList<>();
                 lines.add(EnumChatFormatting.RED + I18n.format("neiextend.pick.recipe"));
@@ -670,10 +672,10 @@ public final class RecipeScreenHooks implements IContainerDrawHandler, IContaine
         return currenttip;
     }
 
-    private static String resultName(RecipeWidget widget) {
+    private static String resultName(Widget widget) {
         try {
-            RecipeHandlerRef ref = widget.getRecipeHandlerRef();
-            if (ref.handler.getResultStack(ref.recipeIndex) == null) {
+            RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
+            if (ref == null || ref.handler.getResultStack(ref.recipeIndex) == null) {
                 return null;
             }
             ItemStack stack = ref.handler.getResultStack(ref.recipeIndex).item;
