@@ -13,7 +13,6 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import neiextend.client.HiddenRecipeFilter;
 import neiextend.client.HiddenStore;
 import neiextend.client.KeyHandler;
-import neiextend.client.LoadProfilerClientEvents;
 import neiextend.client.RecipeScreenHooks;
 
 public class ClientProxy extends CommonProxy {
@@ -21,7 +20,6 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         HiddenStore.INSTANCE.setFile(new File(event.getModConfigurationDirectory(), "neiextend.json"));
-        LoadProfilerClientEvents.register();
     }
 
     @Override

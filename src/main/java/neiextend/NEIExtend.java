@@ -8,9 +8,6 @@ import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
-import cpw.mods.fml.common.event.FMLServerStartedEvent;
-import neiextend.profiler.LoadProfiler;
-import neiextend.profiler.ModEventTimer;
 
 /**
  * NEIExtend: hides the recipe tabs (handlers) and single recipes of NEI that a player has no use for, from a screen in
@@ -31,11 +28,6 @@ public class NEIExtend {
     @SidedProxy(clientSide = "neiextend.ClientProxy", serverSide = "neiextend.CommonProxy")
     public static CommonProxy proxy;
 
-    public NEIExtend() {
-        // FML is constructing the mods: from now on the events it sends them are timed.
-        ModEventTimer.install();
-    }
-
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
         proxy.preInit(event);
@@ -49,11 +41,5 @@ public class NEIExtend {
     @Mod.EventHandler
     public void loadComplete(FMLLoadCompleteEvent event) {
         proxy.loadComplete(event);
-    }
-
-    @Mod.EventHandler
-    public void serverStarted(FMLServerStartedEvent event) {
-        // A client ends the load profile at its first tick, before any server starts: this ends a dedicated server's.
-        LoadProfiler.finish("Server started");
     }
 }
