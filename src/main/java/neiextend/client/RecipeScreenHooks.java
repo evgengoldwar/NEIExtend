@@ -2,8 +2,10 @@ package neiextend.client;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 import net.minecraft.client.Minecraft;
@@ -18,6 +20,7 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.client.event.GuiOpenEvent;
 
+import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import codechicken.lib.vec.Rectangle4i;
@@ -159,6 +162,13 @@ public final class RecipeScreenHooks
     private final Smooth undoLight = new Smooth(0);
     /** Picking recipes to hide: a click on a recipe hides it. */
     private boolean picking;
+    /**
+     * While picking, the recipes the mouse went over with its button held, from the click on; hidden together when
+     * the button is let go. All of one tab: the screen this began on, its handler, and the recipes' indices in it.
+     */
+    private GuiRecipe<?> sweepGui;
+    private IRecipeHandler sweepHandler;
+    private final Set<Integer> swept = new LinkedHashSet<>();
     private Toast toast;
 
     private RecipeScreenHooks() {
@@ -251,7 +261,11 @@ public final class RecipeScreenHooks
             }
             Widget recipe = recipeAt(gui, mouseX, mouseY);
             if (recipe != null && button == 0) {
-                hideRecipe(gui, recipe);
+                // The button is let go on a later frame: everything gone over by then is hidden at once.
+                sweepGui = gui;
+                sweepHandler = null;
+                swept.clear();
+                sweep(recipe);
                 return true;
             }
         }
@@ -289,6 +303,53 @@ public final class RecipeScreenHooks
         if (!(event.gui instanceof GuiRecipe)) {
             picking = false;
         }
+        if (event.gui != sweepGui) {
+            endSweep();
+        }
+    }
+
+    /** Adds the recipe to the ones swept over, when it is of the tab the sweep began on. */
+    private void sweep(Widget widget) {
+        RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
+        if (ref == null) {
+            return;
+        }
+        if (sweepHandler == null) {
+            sweepHandler = ref.handler;
+        }
+        if (ref.handler == sweepHandler) {
+            swept.add(ref.recipeIndex);
+        }
+    }
+
+    /** Called every frame: goes on while the button is held, hides what was swept over when it is let go. */
+    private void updateSweep(GuiRecipe<?> gui, int mouseX, int mouseY) {
+        if (sweepGui == null) {
+            return;
+        }
+        if (sweepGui != gui || !picking) {
+            endSweep();
+            return;
+        }
+        if (Mouse.isButtonDown(0)) {
+            Widget recipe = recipeAt(gui, mouseX, mouseY);
+            if (recipe != null) {
+                sweep(recipe);
+            }
+            return;
+        }
+        IRecipeHandler handler = sweepHandler;
+        Set<Integer> recipes = new LinkedHashSet<>(swept);
+        endSweep();
+        if (handler != null && !recipes.isEmpty() && handler == gui.getHandler()) {
+            hideRecipes(gui, handler, recipes);
+        }
+    }
+
+    private void endSweep() {
+        sweepGui = null;
+        sweepHandler = null;
+        swept.clear();
     }
 
     // Hiding.
@@ -337,21 +398,22 @@ public final class RecipeScreenHooks
         });
     }
 
-    private void hideRecipe(GuiRecipe<?> gui, Widget widget) {
-        RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
-        if (ref == null) {
-            return;
-        }
+    /** Hides the recipes of the tab shown, all in one change, and takes them off its pages where they are. */
+    private void hideRecipes(GuiRecipe<?> gui, IRecipeHandler handler, Set<Integer> recipeIndices) {
         Runnable restore = snapshot(gui);
-        HiddenStore.HiddenRecipe hidden = HiddenStore.INSTANCE.hideRecipe(ref.handler, ref.recipeIndex);
-        if (hidden == null) {
+        List<HiddenStore.HiddenRecipe> hidden = HiddenStore.INSTANCE.hideRecipes(handler, recipeIndices);
+        if (hidden.isEmpty()) {
             return;
         }
         click();
-        GuiRecipe<?> shown = reloadRecipes(gui);
+        // Struck off in place, which is instant; the tab is only shown again when that can't be done or it is empty.
+        GuiRecipe<?> shown = RecipeListPatch.remove(gui, handler, recipeIndices) ? gui : reloadRecipes(gui);
         if (shown != null) {
-            toast = new Toast(shown, I18n.format("neiextend.toast.recipe_hidden", hidden.tab), () -> {
-                HiddenStore.INSTANCE.showRecipe(hidden);
+            String tab = hidden.get(0).tab;
+            String text = hidden.size() == 1 ? I18n.format("neiextend.toast.recipe_hidden", tab)
+                : I18n.format("neiextend.toast.recipes_hidden", hidden.size(), tab);
+            toast = new Toast(shown, text, () -> {
+                HiddenStore.INSTANCE.showRecipes(hidden);
                 restore.run();
             });
         }
@@ -516,6 +578,7 @@ public final class RecipeScreenHooks
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         try {
+            updateSweep(gui, mouseX, mouseY);
             if (picking) {
                 drawPicked(gui, mouseX, mouseY);
             }
@@ -536,12 +599,29 @@ public final class RecipeScreenHooks
     @Override
     public void renderSlotOverlay(GuiContainer gui, Slot slot) {}
 
-    /** A red frame over the recipe under the mouse, the one a click would hide. */
+    /**
+     * The recipes swept over, filled red, and a red frame over the recipe under the mouse, the one a click would
+     * hide.
+     */
     private void drawPicked(GuiRecipe<?> gui, int mouseX, int mouseY) {
-        Widget recipe = recipeAt(gui, mouseX, mouseY);
-        if (recipe == null) {
-            return;
+        if (sweepGui == gui && !swept.isEmpty()) {
+            RecipePageManager pages = ((AccessorGuiRecipe) gui).neiextend$getHandlerPages();
+            if (pages != null) {
+                for (Widget widget : pages.getCurrentPageWidgets()) {
+                    RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
+                    if (ref != null && ref.handler == sweepHandler && swept.contains(ref.recipeIndex)) {
+                        drawRecipeBox(gui, widget, 0x60E5534B);
+                    }
+                }
+            }
         }
+        Widget recipe = recipeAt(gui, mouseX, mouseY);
+        if (recipe != null) {
+            drawRecipeBox(gui, recipe, 0x38E5534B);
+        }
+    }
+
+    private static void drawRecipeBox(GuiRecipe<?> gui, Widget recipe, int fill) {
         Rectangle4i inside = container(gui).boundsInside();
         int x0 = Math.max(recipe.x, inside.x), y0 = Math.max(recipe.y, inside.y);
         int x1 = Math.min(recipe.x + recipe.w, inside.x + inside.w),
@@ -549,7 +629,7 @@ public final class RecipeScreenHooks
         if (x1 <= x0 || y1 <= y0) {
             return;
         }
-        Theme.fill(x0, y0, x1, y1, 0x38E5534B);
+        Theme.fill(x0, y0, x1, y1, fill);
         Theme.outline(x0, y0, x1, y1, Theme.DANGER);
         Theme.outline(x0 + 1, y0 + 1, x1 - 1, y1 - 1, 0x60E5534B);
     }

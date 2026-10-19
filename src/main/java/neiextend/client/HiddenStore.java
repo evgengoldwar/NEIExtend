@@ -15,7 +15,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 import com.google.gson.Gson;
@@ -25,6 +30,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import codechicken.nei.PositionedStack;
 import codechicken.nei.recipe.IRecipeHandler;
 import codechicken.nei.recipe.Recipe.RecipeId;
 import codechicken.nei.recipe.StackInfo;
@@ -108,7 +114,7 @@ public final class HiddenStore {
     private volatile List<SavedTab> pinned = Collections.emptyList();
     private volatile Map<String, Integer> pinPositions = Collections.emptyMap();
     private volatile List<HiddenRecipe> recipes = Collections.emptyList();
-    private volatile Map<String, List<HiddenRecipe>> recipesByHandler = Collections.emptyMap();
+    private volatile Map<String, TabRecipes> recipesByHandler = Collections.emptyMap();
     /** Counts the changes, so a screen can tell its recipes are out of date. */
     private volatile int revision;
 
@@ -170,10 +176,13 @@ public final class HiddenStore {
         return recipesByHandler.containsKey(HandlerCatalog.idOf(handler));
     }
 
-    /** Whether the recipe of the handler is one the player hid. */
+    /**
+     * Whether the recipe of the handler is one the player hid. NEI asks it about every recipe of a tab each time the
+     * tab is shown, so a recipe whose result is none of the hidden ones is let through without making its id.
+     */
     public boolean isRecipeHidden(IRecipeHandler handler, int recipeIndex) {
-        List<HiddenRecipe> hidden = recipesByHandler.get(HandlerCatalog.idOf(handler));
-        if (hidden == null) {
+        TabRecipes hidden = recipesByHandler.get(HandlerCatalog.idOf(handler));
+        if (hidden == null || !hidden.mayBeHidden(handler, recipeIndex)) {
             return false;
         }
         RecipeId id;
@@ -182,12 +191,71 @@ public final class HiddenStore {
         } catch (Throwable t) {
             return false;
         }
-        for (HiddenRecipe recipe : hidden) {
+        for (HiddenRecipe recipe : hidden.recipes) {
             if (recipe.matches(id)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** The hidden recipes of one tab, with the items they make for telling quickly that a recipe is not one. */
+    private static final class TabRecipes {
+
+        private static final int ANY_DAMAGE = 32767;
+
+        final List<HiddenRecipe> recipes = new ArrayList<>();
+        /** The items the hidden recipes make, and those items with their damage. */
+        private final Set<Item> items = new HashSet<>();
+        private final Set<Long> itemsWithDamage = new HashSet<>();
+        /** Items made with any damage, and whether a recipe makes nothing that can be told (always checked). */
+        private final Set<Item> anyDamage = new HashSet<>();
+        private boolean unknownResult;
+
+        void add(HiddenRecipe recipe) {
+            recipes.add(recipe);
+            ItemStack result = recipe.result();
+            if (result == null || result.getItem() == null) {
+                unknownResult = true;
+                return;
+            }
+            items.add(result.getItem());
+            if (result.getItemDamage() == ANY_DAMAGE) {
+                anyDamage.add(result.getItem());
+            }
+            itemsWithDamage.add(key(result));
+        }
+
+        /** False when the recipe surely is none of the hidden ones; true when its id has to be compared. */
+        boolean mayBeHidden(IRecipeHandler handler, int recipeIndex) {
+            if (unknownResult) {
+                return true;
+            }
+            PositionedStack result;
+            try {
+                result = handler.getResultStack(recipeIndex);
+            } catch (Throwable t) {
+                return true;
+            }
+            if (result == null || result.items == null) {
+                // NEI's id takes another stack of the recipe then.
+                return true;
+            }
+            for (ItemStack stack : result.items) {
+                if (stack == null || stack.getItem() == null || !items.contains(stack.getItem())) {
+                    continue;
+                }
+                if (stack.getItemDamage() == ANY_DAMAGE || anyDamage.contains(stack.getItem())
+                    || itemsWithDamage.contains(key(stack))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static long key(ItemStack stack) {
+            return (long) Item.getIdFromItem(stack.getItem()) << 32 | stack.getItemDamage() & 0xFFFFFFFFL;
+        }
     }
 
     // Changing, on the client thread.
@@ -331,29 +399,37 @@ public final class HiddenStore {
         pinned = Collections.unmodifiableList(next);
     }
 
-    /** Hides the recipe; returns what was hidden (for taking it back), or null when it can't be told apart. */
-    public synchronized HiddenRecipe hideRecipe(IRecipeHandler handler, int recipeIndex) {
-        RecipeId id;
-        try {
-            id = RecipeId.of(handler, recipeIndex);
-        } catch (Throwable t) {
-            NEIExtend.LOG.warn("Could not make an id for recipe {} of {}", recipeIndex, handler, t);
-            return null;
-        }
-        if (isRecipeHidden(handler, recipeIndex)) {
-            return null;
-        }
-        HiddenRecipe recipe = new HiddenRecipe(
-            HandlerCatalog.idOf(handler),
-            HandlerCatalog.nameOf(handler),
-            now(),
-            id,
-            id.toJsonObject());
+    /**
+     * Hides the recipes of the handler, all in one change (saved once); returns those hidden, leaving out the ones
+     * already hidden or that can't be told apart.
+     */
+    public synchronized List<HiddenRecipe> hideRecipes(IRecipeHandler handler, Collection<Integer> recipeIndices) {
+        List<HiddenRecipe> added = new ArrayList<>();
         List<HiddenRecipe> next = new ArrayList<>(recipes);
-        next.add(recipe);
-        setRecipes(next);
-        changed();
-        return recipe;
+        String handlerId = HandlerCatalog.idOf(handler);
+        String tab = HandlerCatalog.nameOf(handler);
+        for (int recipeIndex : recipeIndices) {
+            if (isRecipeHidden(handler, recipeIndex)) {
+                continue;
+            }
+            RecipeId id;
+            try {
+                id = RecipeId.of(handler, recipeIndex);
+            } catch (Throwable t) {
+                NEIExtend.LOG.warn("Could not make an id for recipe {} of {}", recipeIndex, handler, t);
+                continue;
+            }
+            HiddenRecipe recipe = new HiddenRecipe(handlerId, tab, now(), id, id.toJsonObject());
+            next.add(recipe);
+            added.add(recipe);
+            // Seen by the next ones, so two picks of the same recipe hide it once.
+            setRecipes(next);
+            next = new ArrayList<>(next);
+        }
+        if (!added.isEmpty()) {
+            changed();
+        }
+        return added;
     }
 
     public synchronized void showRecipe(HiddenRecipe recipe) {
@@ -397,9 +473,9 @@ public final class HiddenStore {
     }
 
     private void setRecipes(List<HiddenRecipe> next) {
-        Map<String, List<HiddenRecipe>> byHandler = new HashMap<>();
+        Map<String, TabRecipes> byHandler = new HashMap<>();
         for (HiddenRecipe recipe : next) {
-            byHandler.computeIfAbsent(recipe.handlerId, k -> new ArrayList<>())
+            byHandler.computeIfAbsent(recipe.handlerId, k -> new TabRecipes())
                 .add(recipe);
         }
         recipesByHandler = byHandler;
@@ -478,6 +554,15 @@ public final class HiddenStore {
         }
     }
 
+    /** Writes the file off the client thread; its one thread ends when idle, and the game waits for a write. */
+    private static final ThreadPoolExecutor SAVER = new ThreadPoolExecutor(
+        0,
+        1,
+        2,
+        TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(),
+        task -> new Thread(task, "NEIExtend save"));
+
     private void save() {
         if (file == null) {
             return;
@@ -495,6 +580,12 @@ public final class HiddenStore {
             recipeArray.add(json);
         }
         root.add("hiddenRecipes", recipeArray);
+        File target = file;
+        // Written on a thread of its own, so hiding stays instant with a long list; one write at a time, in order.
+        SAVER.execute(() -> write(root, target));
+    }
+
+    private static void write(JsonObject root, File file) {
         try {
             File parent = file.getAbsoluteFile()
                 .getParentFile();

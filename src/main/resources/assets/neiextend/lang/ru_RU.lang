@@ -12,13 +12,14 @@ neiextend.tool.hide_tab=Скрыть эту вкладку
 neiextend.tool.hide_tab_text=Она больше не появится в NEI. Вернуть её можно в окне NEIExtend.
 neiextend.tool.pick=Скрыть рецепты
 neiextend.tool.pick_on=Скрытие рецептов: включено
-neiextend.tool.pick_text=Включите и щёлкайте по рецептам, которые нужно скрыть. ПКМ - выйти.
+neiextend.tool.pick_text=Включите и щёлкайте по рецептам, которые нужно скрыть, или зажмите ЛКМ и проведите по нескольким. ПКМ - выйти.
 neiextend.tool.window=NEIExtend
 neiextend.tool.window_text=Скрыто: вкладок - %d, рецептов - %d. Откройте список, чтобы вернуть их.
-neiextend.pick.hint=Щёлкните по рецепту, чтобы скрыть его - ПКМ: выйти
-neiextend.pick.recipe=Щёлкните, чтобы скрыть этот рецепт
+neiextend.pick.hint=Щёлкните по рецепту или проведите по нескольким с зажатой ЛКМ - ПКМ: выйти
+neiextend.pick.recipe=Щёлкните, чтобы скрыть рецепт; зажмите и ведите, чтобы скрыть несколько
 neiextend.toast.tab_hidden=Вкладка «%s» скрыта
 neiextend.toast.recipe_hidden=Рецепт скрыт во вкладке «%s»
+neiextend.toast.recipes_hidden=Скрыто рецептов: %d во вкладке «%s»
 neiextend.toast.undo=Отменить
 neiextend.toast.undo_tip=Вернуть обратно
 
