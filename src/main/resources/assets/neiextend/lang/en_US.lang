@@ -12,14 +12,13 @@ neiextend.tool.hide_tab=Hide this tab
 neiextend.tool.hide_tab_text=It won't show up in NEI again. Bring it back in the NEIExtend window.
 neiextend.tool.pick=Hide recipes
 neiextend.tool.pick_on=Hide recipes: on
-neiextend.tool.pick_text=Turn it on, then click the recipes to hide, or hold the button and sweep over several. Right click to stop.
+neiextend.tool.pick_text=Turn it on, then click the recipes to hide. Right click to stop.
 neiextend.tool.window=NEIExtend
 neiextend.tool.window_text=Hidden: %d tabs, %d recipes. Open the list to bring them back.
-neiextend.pick.hint=Click a recipe or sweep over several to hide them - right click to stop
-neiextend.pick.recipe=Click to hide this recipe, hold and sweep for more
+neiextend.pick.hint=Click a recipe to hide it - right click to stop
+neiextend.pick.recipe=Click to hide this recipe
 neiextend.toast.tab_hidden=Tab "%s" hidden
 neiextend.toast.recipe_hidden=Recipe hidden in "%s"
-neiextend.toast.recipes_hidden=%d recipes hidden in "%s"
 neiextend.toast.undo=Undo
 neiextend.toast.undo_tip=Show it again
 
