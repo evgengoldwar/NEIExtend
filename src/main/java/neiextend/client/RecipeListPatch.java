@@ -79,10 +79,16 @@ final class RecipeListPatch {
             int page = Math.max(0, pages.getCurrentPageIndex());
             filtered.set(search, newFiltered);
             searched.set(search, newSearched);
-            pages.rebuildPages();
-            int last = Math.max(0, pages.getNumPages() - 1);
-            pages.changePage(Math.min(page, last) - Math.max(0, pages.getCurrentPageIndex()));
+            // The screen lays the pages out again itself, and only then puts the new ones on screen: laying them out
+            // here first would leave it showing the old ones.
             accessor.neiextend$refreshContainer();
+            // A page gone (its last recipes were struck off) starts over from the first one: back to the last.
+            int last = Math.max(0, pages.getNumPages() - 1);
+            int now = Math.max(0, pages.getCurrentPageIndex());
+            if (now != Math.min(page, last)) {
+                pages.changePage(Math.min(page, last) - now);
+                accessor.neiextend$refreshContainer();
+            }
             return true;
         } catch (ReflectiveOperationException | RuntimeException e) {
             broken = true;
