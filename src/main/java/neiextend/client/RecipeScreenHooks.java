@@ -29,6 +29,7 @@ import codechicken.nei.ItemsTooltipLineHandler;
 import codechicken.nei.NEICPH;
 import codechicken.nei.NEIClientConfig;
 import codechicken.nei.PositionedStack;
+import codechicken.nei.RecipeSearchField;
 import codechicken.nei.Widget;
 import codechicken.nei.api.INEIGuiHandler;
 import codechicken.nei.api.IRecipeFilter;
@@ -41,6 +42,7 @@ import codechicken.nei.recipe.GuiUsageRecipe;
 import codechicken.nei.recipe.HandlerInfo;
 import codechicken.nei.recipe.IRecipeHandler;
 import codechicken.nei.recipe.RecipeHandlerRef;
+import codechicken.nei.recipe.RecipePageManager;
 import codechicken.nei.recipe.TemplateRecipeHandler;
 import codechicken.nei.scroll.ScrollContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -118,6 +120,48 @@ public final class RecipeScreenHooks
         double alpha() {
             long left = TOAST_MS - (System.currentTimeMillis() - shownAt);
             return Math.max(0, Math.min(1, left / (double) TOAST_FADE_MS));
+        }
+    }
+
+    /**
+     * Where the player is in the tab shown: its page, and what is searched in it. NEI shows a tab again from its first
+     * page with the search closed; this puts them back after.
+     */
+    private static final class View {
+
+        final int page;
+        /** What is typed in NEI's search over the tab, or null when the search is closed. */
+        final String search;
+        final int searchButton;
+
+        View(GuiRecipe<?> gui) {
+            RecipePageManager pages = ((AccessorGuiRecipe) gui).neiextend$getHandlerPages();
+            RecipeSearchField field = AccessorGuiRecipe.neiextend$getSearchField();
+            this.page = pages == null ? 0 : Math.max(0, pages.getCurrentPageIndex());
+            this.search = field.isVisible() ? field.text() : null;
+            this.searchButton = AccessorGuiRecipe.neiextend$getToggleSearch().state;
+        }
+
+        /** Puts it back, on the same tab shown again; a page gone (its last recipe was hidden) gives the last one. */
+        void restore(GuiRecipe<?> gui) {
+            AccessorGuiRecipe accessor = (AccessorGuiRecipe) gui;
+            if (search != null && gui.getHandler() instanceof TemplateRecipeHandler) {
+                RecipeSearchField field = AccessorGuiRecipe.neiextend$getSearchField();
+                field.setVisible(true);
+                field.setText(search);
+                AccessorGuiRecipe.neiextend$getToggleSearch().state = searchButton;
+                // NEI filters on a thread of its own; done now too, so the page is counted among the recipes found.
+                AccessorGuiRecipe.neiextend$getUpdateFilter()
+                    .execute();
+            }
+            RecipePageManager pages = accessor.neiextend$getHandlerPages();
+            if (pages == null) {
+                return;
+            }
+            accessor.neiextend$refreshContainer();
+            int last = Math.max(0, pages.getNumPages() - 1);
+            pages.changePage(Math.min(page, last) - Math.max(0, pages.getCurrentPageIndex()));
+            accessor.neiextend$refreshContainer();
         }
     }
 
@@ -305,7 +349,7 @@ public final class RecipeScreenHooks
                 RecipeGroups.ungroup(handler);
             }
         }
-        gui.forceRefreshPage();
+        refreshPage(gui);
     }
 
     /** Every second the grouped recipes on the screen show the next of their group, but the one under the mouse. */
@@ -347,7 +391,7 @@ public final class RecipeScreenHooks
         } else {
             HiddenStore.INSTANCE.pin(handler, 0);
         }
-        gui.forceRefreshPage();
+        refreshPage(gui);
         String text = I18n.format(was >= 0 ? "neiextend.toast.unpinned" : "neiextend.toast.pinned", name);
         toast = new Toast(gui, text, () -> {
             if (was >= 0) {
@@ -355,7 +399,7 @@ public final class RecipeScreenHooks
             } else {
                 HiddenStore.INSTANCE.unpin(id);
             }
-            gui.forceRefreshPage();
+            refreshPage(gui);
         });
     }
 
@@ -381,16 +425,25 @@ public final class RecipeScreenHooks
         }
     }
 
-    /** Puts the screen back as it is now: its tabs and the one shown. */
+    /** Puts the screen back as it is now: its tabs, the one shown, its page and what is searched in it. */
     private Runnable snapshot(GuiRecipe<?> gui) {
         List<IRecipeHandler> tabs = new ArrayList<>(handlers(gui));
         int index = gui.recipetype;
+        View view = new View(gui);
         return () -> {
             List<IRecipeHandler> handlers = handlers(gui);
             handlers.clear();
             handlers.addAll(tabs);
             showTab(gui, index);
+            view.restore(gui);
         };
+    }
+
+    /** Shows the tab again after a change, on the same page and with the same search. */
+    private static void refreshPage(GuiRecipe<?> gui) {
+        View view = new View(gui);
+        gui.forceRefreshPage();
+        view.restore(gui);
     }
 
     @SuppressWarnings("unchecked")
@@ -438,15 +491,15 @@ public final class RecipeScreenHooks
     }
 
     /**
-     * Shows the recipes of the tab again after some were hidden or shown, on the same page; a tab left without
-     * recipes goes away. Returns the screen still open, or null.
+     * Shows the recipes of the tab again after some were hidden or shown, on the same page and keeping what is
+     * searched; a tab left without recipes goes away. Returns the screen still open, or null.
      */
     private static GuiRecipe<?> reloadRecipes(GuiRecipe<?> gui) {
         IRecipeHandler current = gui.getHandler();
         if (current != null && !hasVisibleRecipe(current)) {
             return removeTab(gui, gui.recipetype);
         }
-        gui.forceRefreshPage();
+        refreshPage(gui);
         return gui;
     }
 
@@ -498,6 +551,7 @@ public final class RecipeScreenHooks
         toast = null;
         IRecipeHandler current = gui.getHandler();
         String currentId = HandlerCatalog.idOf(current);
+        View view = current == null ? null : new View(gui);
         List<IRecipeHandler> handlers = handlers(gui);
         Query query = queries.get(gui);
         if (query != null) {
@@ -516,7 +570,7 @@ public final class RecipeScreenHooks
             return;
         }
         groupAll(gui);
-        int index = 0;
+        int index = -1;
         for (int i = 0; i < handlers.size(); i++) {
             if (HandlerCatalog.idOf(handlers.get(i))
                 .equals(currentId)) {
@@ -524,7 +578,11 @@ public final class RecipeScreenHooks
                 break;
             }
         }
-        showTab(gui, index);
+        showTab(gui, Math.max(0, index));
+        if (index >= 0 && view != null) {
+            // Still the same tab: on the same page, with the same search.
+            view.restore(gui);
+        }
     }
 
     // Drawing, in the screen's pixels, after the screen and NEI's panels.

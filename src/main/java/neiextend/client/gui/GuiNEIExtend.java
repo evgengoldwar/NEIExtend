@@ -25,6 +25,7 @@ import codechicken.nei.drawable.DrawableResource;
 import codechicken.nei.recipe.GuiRecipe;
 import codechicken.nei.recipe.HandlerInfo;
 import codechicken.nei.recipe.IRecipeHandler;
+import codechicken.nei.recipe.StackInfo;
 import neiextend.Tags;
 import neiextend.client.AllRecipes;
 import neiextend.client.HandlerCatalog;
@@ -151,19 +152,32 @@ public class GuiNEIExtend extends ScaledScreen {
         }
     }
 
-    /** A line of the recipes' list: one hidden recipe. */
+    /**
+     * A line of the recipes' list: one hidden recipe, or the heading of a tab's hidden recipes (its {@link #members}
+     * are the ones the list shows, folded or not).
+     */
     private static final class RecipeRow {
 
         final HiddenStore.HiddenRecipe recipe;
+        final String handlerId, tab;
+        final List<RecipeRow> members;
         final ItemStack result;
+        /** The ingredients, each kind once with how many of it the recipe takes. */
         final List<ItemStack> ingredients;
         final String name, searchText;
-        final Smooth light = new Smooth(0), restoreLight = new Smooth(0);
+        final Smooth light = new Smooth(0), buttonLight = new Smooth(0);
+        /** Shown again from the list: it stays in it, dimmed, to be hidden again, until the list is filled again. */
+        boolean restored;
+        /** A heading's "show all" waits for a second click until then. */
+        long confirmUntil;
 
         RecipeRow(HiddenStore.HiddenRecipe recipe) {
             this.recipe = recipe;
+            this.handlerId = recipe.handlerId;
+            this.tab = recipe.tab;
+            this.members = null;
             this.result = recipe.result();
-            this.ingredients = recipe.ingredients();
+            this.ingredients = merge(recipe.ingredients());
             String shown;
             try {
                 shown = result == null ? null : result.getDisplayName();
@@ -184,6 +198,58 @@ public class GuiNEIExtend extends ScaledScreen {
             this.searchText = text.toString()
                 .toLowerCase(Locale.ROOT);
         }
+
+        /** The heading of a tab. */
+        RecipeRow(String handlerId, String tab, List<RecipeRow> members) {
+            this.recipe = null;
+            this.handlerId = handlerId;
+            this.tab = tab;
+            this.members = members;
+            this.result = null;
+            this.ingredients = Collections.emptyList();
+            this.name = tab;
+            this.searchText = "";
+        }
+
+        boolean isHeading() {
+            return members != null;
+        }
+
+        /** The hidden recipes of a heading's tab still hidden. */
+        List<HiddenStore.HiddenRecipe> stillHidden() {
+            List<HiddenStore.HiddenRecipe> hidden = new ArrayList<>();
+            for (RecipeRow member : members) {
+                if (!member.restored) {
+                    hidden.add(member.recipe);
+                }
+            }
+            return hidden;
+        }
+
+        /** The same items put together: two rods in two slots are shown as one rod, twice. */
+        private static List<ItemStack> merge(List<ItemStack> stacks) {
+            List<ItemStack> merged = new ArrayList<>();
+            for (ItemStack stack : stacks) {
+                if (stack == null || stack.getItem() == null) {
+                    continue;
+                }
+                ItemStack same = null;
+                for (ItemStack each : merged) {
+                    if (StackInfo.equalItemAndNBT(each, stack, true)) {
+                        same = each;
+                        break;
+                    }
+                }
+                if (same != null) {
+                    same.stackSize += Math.max(1, stack.stackSize);
+                } else {
+                    ItemStack copy = stack.copy();
+                    copy.stackSize = Math.max(1, copy.stackSize);
+                    merged.add(copy);
+                }
+            }
+            return merged;
+        }
     }
 
     /** The page last open: the window opens on it again. */
@@ -201,6 +267,10 @@ public class GuiNEIExtend extends ScaledScreen {
     private int tabCount;
     /** The mods whose tabs are folded under their heading, for as long as the game runs. */
     private static final Set<String> foldedMods = new HashSet<>();
+    /** The tabs whose hidden recipes are folded under their heading, for as long as the game runs. */
+    private static final Set<String> foldedRecipeTabs = new HashSet<>();
+    /** How many hidden recipes the list of recipes shows, folded tabs included. */
+    private int recipeCount;
     /** The tab whose place among the ones put first is being typed (null for none), and what is typed. */
     private String placeEditId;
     private String placeInput = "";
@@ -351,12 +421,25 @@ public class GuiNEIExtend extends ScaledScreen {
             }
         } else if (page == Page.RECIPES) {
             List<HiddenStore.HiddenRecipe> recipes = new ArrayList<>(HiddenStore.INSTANCE.recipes());
-            // The last hidden first.
+            // The last hidden first, and the tabs too by the last hidden of each.
             Collections.reverse(recipes);
+            Map<String, List<RecipeRow>> byTab = new LinkedHashMap<>();
+            recipeCount = 0;
             for (HiddenStore.HiddenRecipe recipe : recipes) {
                 RecipeRow row = new RecipeRow(recipe);
                 if (query.isEmpty() || row.searchText.contains(query)) {
-                    recipeRows.add(row);
+                    byTab.computeIfAbsent(recipe.handlerId, k -> new ArrayList<>())
+                        .add(row);
+                    recipeCount++;
+                }
+            }
+            for (Map.Entry<String, List<RecipeRow>> tab : byTab.entrySet()) {
+                List<RecipeRow> members = tab.getValue();
+                HandlerCatalog.Entry entry = catalogById.get(tab.getKey());
+                String name = entry != null ? entry.name : members.get(0).tab;
+                recipeRows.add(new RecipeRow(tab.getKey(), name, members));
+                if (!query.isEmpty() || !foldedRecipeTabs.contains(tab.getKey())) {
+                    recipeRows.addAll(members);
                 }
             }
         }
@@ -566,6 +649,9 @@ public class GuiNEIExtend extends ScaledScreen {
                 HiddenStore.INSTANCE.showAllTabs();
             } else if (page == Page.ORDER) {
                 HiddenStore.INSTANCE.unpinAll();
+            } else if (searching()) {
+                // Only what was found.
+                HiddenStore.INSTANCE.showRecipes(foundRecipes());
             } else {
                 HiddenStore.INSTANCE.showAllRecipes();
             }
@@ -670,14 +756,80 @@ public class GuiNEIExtend extends ScaledScreen {
         } else if (page == Page.ORDER) {
             clickOrder(index, y, mouseX, mouseY);
         } else {
-            RecipeRow row = recipeRows.get(index);
-            int by = y + (RECIPE_ROW - 16) / 2;
-            if (Theme.inside(mouseX, mouseY, restoreX(), by, restoreX() + RESTORE_WIDTH, by + 16)) {
-                HiddenStore.INSTANCE.showRecipe(row.recipe);
+            clickRecipe(recipeRows.get(index), mouseX, mouseY, y);
+        }
+    }
+
+    /**
+     * A click on a line of the recipes. A recipe's button shows it again, or hides it again: it stays in the list
+     * until the list is filled again. A heading's button shows all its tab's recipes (a second click confirms it);
+     * elsewhere the heading folds or unfolds the tab, all tabs with Shift.
+     */
+    private void clickRecipe(RecipeRow row, int mouseX, int mouseY, int y) {
+        int by = y + (RECIPE_ROW - 16) / 2;
+        boolean onButton = Theme.inside(mouseX, mouseY, restoreX(), by, restoreX() + RESTORE_WIDTH, by + 16);
+        if (!row.isHeading()) {
+            if (onButton) {
+                if (row.restored) {
+                    HiddenStore.INSTANCE.hideAgain(row.recipe);
+                } else {
+                    HiddenStore.INSTANCE.showRecipe(row.recipe);
+                }
+                row.restored = !row.restored;
                 click();
-                rebuild();
+            }
+            return;
+        }
+        click();
+        if (onButton) {
+            long now = System.currentTimeMillis();
+            if (now > row.confirmUntil) {
+                row.confirmUntil = now + CONFIRM_MS;
+                return;
+            }
+            row.confirmUntil = 0;
+            HiddenStore.INSTANCE.showRecipes(row.stillHidden());
+            rebuild();
+            return;
+        }
+        if (searching()) {
+            // A search shows all it finds, folded or not.
+            return;
+        }
+        boolean fold = !foldedRecipeTabs.contains(row.handlerId);
+        if (isShiftKeyDown()) {
+            for (RecipeRow each : recipeRows) {
+                if (each.isHeading()) {
+                    if (fold) {
+                        foldedRecipeTabs.add(each.handlerId);
+                    } else {
+                        foldedRecipeTabs.remove(each.handlerId);
+                    }
+                }
+            }
+        } else if (fold) {
+            foldedRecipeTabs.add(row.handlerId);
+        } else {
+            foldedRecipeTabs.remove(row.handlerId);
+        }
+        rebuild();
+    }
+
+    private boolean searching() {
+        return !search.getText()
+            .trim()
+            .isEmpty();
+    }
+
+    /** The hidden recipes the search found, but the ones shown again already. */
+    private List<HiddenStore.HiddenRecipe> foundRecipes() {
+        List<HiddenStore.HiddenRecipe> found = new ArrayList<>();
+        for (RecipeRow row : recipeRows) {
+            if (!row.isHeading() && !row.restored) {
+                found.add(row.recipe);
             }
         }
+        return found;
     }
 
     /**
@@ -835,7 +987,7 @@ public class GuiNEIExtend extends ScaledScreen {
             return;
         }
         String id = page == Page.TABS ? tabRows.get(index).id
-            : page == Page.ORDER ? orderRows.get(index).id : recipeRows.get(index).recipe.handlerId;
+            : page == Page.ORDER ? orderRows.get(index).id : recipeRows.get(index).handlerId;
         HandlerCatalog.Entry entry = null;
         for (HandlerCatalog.Entry each : catalog) {
             if (each.id.equals(id)) {
@@ -1020,10 +1172,15 @@ public class GuiNEIExtend extends ScaledScreen {
                 .isEmpty() : HiddenStore.INSTANCE.hasHiddenRecipes();
         showAll.icon = page == Page.ORDER ? Icons.SMALL_CLEAR : Icons.SMALL_EYE;
         showAll.danger = confirming;
-        showAll.displayString = I18n.format(
-            confirming ? "neiextend.show_all.confirm"
-                : page == Page.TABS ? "neiextend.show_all.tabs"
-                    : page == Page.ORDER ? "neiextend.show_all.order" : "neiextend.show_all.recipes");
+        boolean onlyFound = page == Page.RECIPES && searching();
+        if (onlyFound) {
+            showAll.enabled = !foundRecipes().isEmpty();
+        }
+        showAll.displayString = confirming ? I18n.format("neiextend.show_all.confirm")
+            : onlyFound ? I18n.format("neiextend.show_all.found", foundRecipes().size())
+                : I18n.format(
+                    page == Page.TABS ? "neiextend.show_all.tabs"
+                        : page == Page.ORDER ? "neiextend.show_all.order" : "neiextend.show_all.recipes");
         showAllLabel = showAll.displayString;
         if (page != Page.HELP) {
             layoutControls();
@@ -1172,7 +1329,12 @@ public class GuiNEIExtend extends ScaledScreen {
                     drawTabRow(row, y, hovered, mouseX, mouseY);
                 }
             } else {
-                drawRecipeRow(recipeRows.get(i), y, hovered, mouseX, mouseY);
+                RecipeRow row = recipeRows.get(i);
+                if (row.isHeading()) {
+                    drawRecipeHeading(row, y, hovered, mouseX, mouseY);
+                } else {
+                    drawRecipeRow(row, y, hovered, mouseX, mouseY);
+                }
             }
         }
         Theme.unclip();
@@ -1523,7 +1685,11 @@ public class GuiNEIExtend extends ScaledScreen {
 
     /** The tab's icon as NEI shows it on its tab: a picture, an item, or the first letters of its name. */
     private void drawHandlerIcon(TabRow row, int x, int y, boolean dim) {
-        HandlerInfo info = row.entry == null ? null : row.entry.info;
+        drawHandlerIcon(row.entry, row.name, x, y, dim);
+    }
+
+    private void drawHandlerIcon(HandlerCatalog.Entry entry, String name, int x, int y, boolean dim) {
+        HandlerInfo info = entry == null ? null : entry.info;
         DrawableResource image = info == null ? null : info.getImage();
         ItemStack stack = info == null ? null : info.getItemStack();
         if (image != null) {
@@ -1534,7 +1700,7 @@ public class GuiNEIExtend extends ScaledScreen {
         } else if (stack != null) {
             Draw.item(stack, x, y, 16);
         } else {
-            String letters = row.name.length() > 2 ? row.name.substring(0, 2) : row.name;
+            String letters = name.length() > 2 ? name.substring(0, 2) : name;
             Theme.centered(fontRendererObj, letters, x + 8, y + 4, Theme.TEXT_MUTED);
         }
         if (dim) {
@@ -1561,16 +1727,70 @@ public class GuiNEIExtend extends ScaledScreen {
         Theme.fill(knobX, y + 2, knobX + 10, y1 - 2, Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, at));
     }
 
+    /**
+     * The heading of a tab's hidden recipes: folded or not, the tab's icon, name and how many of its recipes are
+     * hidden, and a button showing them all again.
+     */
+    private void drawRecipeHeading(RecipeRow heading, int y, boolean hovered, int mouseX, int mouseY) {
+        int x0 = contentLeft, x1 = contentRight - 6;
+        double lit = heading.light.update(hovered ? 1 : 0, 22);
+        HandlerCatalog.Entry entry = catalogById.get(heading.handlerId);
+        int color = Draw.modColor(entry != null ? entry.mod : heading.tab);
+        Theme.fill(x0 + 1, y + 1, x1, y + RECIPE_ROW - 1, Theme.blend(0xFF101C30, 0xFF16263F, lit));
+        Theme.fill(x0 + 1, y + 1, x0 + 3, y + RECIPE_ROW - 1, color);
+        boolean folded = foldedRecipeTabs.contains(heading.handlerId) && !searching();
+        Icons.draw(folded ? Icons.SMALL_ARROW : Icons.SMALL_DOWN, x0 + 9, y + 12, Theme.TEXT_MUTED);
+        drawHandlerIcon(entry, heading.tab, x0 + 21, y + 7, false);
+
+        int hidden = heading.stillHidden()
+            .size();
+        int textX = x0 + 43, room = restoreX() - 10 - textX;
+        String name = Theme.ellipsize(fontRendererObj, heading.tab, room * 2 / 3);
+        fontRendererObj.drawStringWithShadow(name, textX, y + 6, Theme.blend(color, Theme.TEXT, 0.35));
+        String mod = entry != null ? entry.mod : I18n.format("neiextend.open.missing");
+        fontRendererObj.drawString(Theme.ellipsize(fontRendererObj, mod, room), textX, y + 17, Theme.TEXT_DISABLED);
+        String count = I18n.format("neiextend.recipes.count", hidden);
+        int countX = textX + fontRendererObj.getStringWidth(name) + 8;
+        if (countX + fontRendererObj.getStringWidth(count) <= textX + room) {
+            Theme.pill(fontRendererObj, count, countX, y + 4, Theme.TEXT_MUTED);
+        }
+
+        boolean confirming = System.currentTimeMillis() < heading.confirmUntil;
+        boolean over = hidden > 0 && rowButton(
+            heading.buttonLight,
+            y,
+            Icons.SMALL_EYE,
+            I18n.format(confirming ? "neiextend.recipes.sure" : "neiextend.recipes.show_tab"),
+            confirming ? Theme.DANGER : Theme.ACCENT,
+            mouseX,
+            mouseY);
+        if (over) {
+            hoverText = I18n.format("neiextend.recipes.show_tab_tip", hidden, heading.tab);
+        } else if (hovered && hoverText == null) {
+            hoverText = heading.tab + "\n"
+                + (searching() ? I18n.format("neiextend.recipes.tip")
+                    : I18n.format(folded ? "neiextend.recipes.unfold" : "neiextend.recipes.fold"));
+        }
+    }
+
     private void drawRecipeRow(RecipeRow row, int y, boolean hovered, int mouseX, int mouseY) {
         int x0 = contentLeft, x1 = contentRight - 6;
         double lit = row.light.update(hovered ? 1 : 0, 22);
         if (lit > 0.01) {
             Theme.fill(x0 + 1, y, x1, y + RECIPE_ROW, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
         }
-        int boxX = x0 + 8, boxY = y + 4;
-        Theme.roundBox(boxX, boxY, boxX + 22, boxY + 22, 0xFF0A1424, Theme.BOX_BORDER);
+        // Under its tab's heading.
+        Theme.fill(x0 + 10, y, x0 + 11, y + RECIPE_ROW, Theme.BOX_BORDER);
+        int boxX = x0 + 18, boxY = y + 4;
+        Theme.roundBox(
+            boxX,
+            boxY,
+            boxX + 22,
+            boxY + 22,
+            0xFF0A1424,
+            row.restored ? Theme.blend(Theme.SUCCESS, Theme.BOX_BORDER, 0.5) : Theme.BOX_BORDER);
         if (row.result != null) {
-            Draw.item(row.result, boxX + 3, boxY + 3, 16);
+            drawStack(row.result, boxX + 3, boxY + 3, 16, row.result.stackSize, row.restored);
             if (Theme.inside(mouseX, mouseY, boxX, boxY, boxX + 22, boxY + 22)) {
                 hoverStack = row.result;
             }
@@ -1589,7 +1809,7 @@ public class GuiNEIExtend extends ScaledScreen {
         int ix = ingredientsLeft, iy = y + (RECIPE_ROW - 12) / 2;
         for (int i = 0; i < shownIngredients; i++) {
             ItemStack ingredient = row.ingredients.get(i);
-            Draw.item(ingredient, ix + 1, iy, 12);
+            drawStack(ingredient, ix + 1, iy, 12, ingredient.stackSize, row.restored);
             if (Theme.inside(mouseX, mouseY, ix, iy, ix + INGREDIENT, iy + 12)) {
                 hoverStack = ingredient;
             }
@@ -1603,40 +1823,91 @@ public class GuiNEIExtend extends ScaledScreen {
             Icons.draw(Icons.SMALL_ARROW, ingredientsLeft - 12, iy + 3, Theme.TEXT_DISABLED);
         }
 
-        int textX = x0 + 38, room = ingredientsLeft - 16 - textX;
-        fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, row.name, room),
-            textX,
-            y + 6,
-            row.result == null ? Theme.WARN : Theme.TEXT);
-        String tab = I18n.format("neiextend.recipes.in_tab", row.recipe.tab);
-        fontRendererObj.drawString(Theme.ellipsize(fontRendererObj, tab, room), textX, y + 17, Theme.TEXT_MUTED);
-
-        int by = y + (RECIPE_ROW - 16) / 2;
-        boolean over = Theme.inside(mouseX, mouseY, restoreX, by, restoreX + RESTORE_WIDTH, by + 16);
-        double restoreLit = row.restoreLight.update(over ? 1 : 0, 22);
-        if (restoreLit > 0.01) {
-            Theme.glow(restoreX, by, restoreX + RESTORE_WIDTH, by + 16, Theme.ACCENT, restoreLit * 0.4);
+        int textX = boxX + 30, room = ingredientsLeft - 16 - textX;
+        int nameColor = row.restored ? Theme.TEXT_MUTED : row.result == null ? Theme.WARN : Theme.TEXT;
+        fontRendererObj.drawString(Theme.ellipsize(fontRendererObj, row.name, room), textX, y + 6, nameColor);
+        if (row.restored) {
+            Icons.draw(Icons.SMALL_CHECK, textX, y + 18, Theme.SUCCESS);
+            fontRendererObj.drawString(
+                Theme.ellipsize(fontRendererObj, I18n.format("neiextend.recipes.restored"), room - 10),
+                textX + 10,
+                y + 17,
+                Theme.SUCCESS);
+        } else {
+            fontRendererObj.drawString(
+                Theme.ellipsize(fontRendererObj, ago(row.recipe.time), room),
+                textX,
+                y + 17,
+                Theme.TEXT_DISABLED);
         }
-        Theme.roundBox(
-            restoreX,
-            by,
-            restoreX + RESTORE_WIDTH,
-            by + 16,
-            Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, restoreLit),
-            Theme.blend(0xFF2A3D5C, Theme.ACCENT, restoreLit));
-        int color = Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, restoreLit);
-        Icons.draw(Icons.SMALL_EYE, restoreX + 6, by + 5, color);
-        fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, I18n.format("neiextend.recipes.restore"), RESTORE_WIDTH - 20),
-            restoreX + 16,
-            by + 4,
-            color);
+
+        boolean over = rowButton(
+            row.buttonLight,
+            y,
+            row.restored ? Icons.SMALL_EYE_OFF : Icons.SMALL_EYE,
+            I18n.format(row.restored ? "neiextend.recipes.hide_again" : "neiextend.recipes.restore"),
+            row.restored ? Theme.DANGER : Theme.ACCENT,
+            mouseX,
+            mouseY);
         if (over) {
-            hoverText = I18n.format("neiextend.recipes.restore_tip");
+            hoverText = I18n
+                .format(row.restored ? "neiextend.recipes.hide_again_tip" : "neiextend.recipes.restore_tip");
         } else if (hovered && hoverText == null && hoverStack == null) {
             hoverText = row.name + "\n" + I18n.format("neiextend.recipes.tip");
         }
+    }
+
+    /** The button on the right of a line of the recipes, lit by the mouse; returns whether the mouse is on it. */
+    private boolean rowButton(Smooth light, int y, String[] icon, String label, int accent, int mouseX, int mouseY) {
+        int x0 = restoreX(), x1 = x0 + RESTORE_WIDTH, by = y + (RECIPE_ROW - 16) / 2;
+        boolean over = Theme.inside(mouseX, mouseY, x0, by, x1, by + 16);
+        double lit = light.update(over ? 1 : 0, 22);
+        if (lit > 0.01) {
+            Theme.glow(x0, by, x1, by + 16, accent, lit * 0.4);
+        }
+        Theme.roundBox(
+            x0,
+            by,
+            x1,
+            by + 16,
+            Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit),
+            Theme.blend(0xFF2A3D5C, accent, Math.max(lit, accent == Theme.DANGER ? 0.6 : 0)));
+        int color = accent == Theme.DANGER ? Theme.blend(accent, Theme.TEXT, lit)
+            : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+        Icons.draw(icon, x0 + 6, by + 5, color);
+        fontRendererObj
+            .drawString(Theme.ellipsize(fontRendererObj, label, RESTORE_WIDTH - 20), x0 + 16, by + 4, color);
+        return over;
+    }
+
+    /** An item with how many of it there are in its corner, as in the inventory; faded when {@code dim}. */
+    private void drawStack(ItemStack stack, int x, int y, int size, int count, boolean dim) {
+        Draw.item(stack, x, y, size);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        if (count > 1) {
+            String text = String.valueOf(count);
+            int textX = x + size + 1 - fontRendererObj.getStringWidth(text);
+            fontRendererObj.drawStringWithShadow(text, textX, y + size - 7, Theme.TEXT);
+        }
+        if (dim) {
+            Theme.fill(x, y, x + size, y + size, 0x900A1424);
+        }
+    }
+
+    /** When the recipe was hidden, as "hidden 5 min ago". */
+    private static String ago(long time) {
+        if (time <= 0) {
+            return "";
+        }
+        long minutes = Math.max(0, System.currentTimeMillis() - time) / 60000;
+        if (minutes < 1) {
+            return I18n.format("neiextend.recipes.ago.now");
+        } else if (minutes < 60) {
+            return I18n.format("neiextend.recipes.ago.minutes", minutes);
+        } else if (minutes < 60 * 24) {
+            return I18n.format("neiextend.recipes.ago.hours", minutes / 60);
+        }
+        return I18n.format("neiextend.recipes.ago.days", minutes / (60 * 24));
     }
 
     /** At the bottom: how much the list shows, and where it is all kept. */
@@ -1649,7 +1920,12 @@ public class GuiNEIExtend extends ScaledScreen {
         }
         String count = page == Page.TABS ? I18n.format("neiextend.note.tabs", tabCount, catalog.size())
             : page == Page.ORDER ? I18n.format("neiextend.note.order", orderRows.size())
-                : I18n.format("neiextend.note.recipes", recipeRows.size());
+                : searching() ? I18n.format(
+                    "neiextend.note.recipes_found",
+                    recipeCount,
+                    HiddenStore.INSTANCE.recipes()
+                        .size())
+                    : I18n.format("neiextend.note.recipes", recipeCount);
         fontRendererObj.drawString(count, contentLeft + 1, y, Theme.TEXT_DISABLED);
         String file = I18n.format("neiextend.note.file");
         int fileWidth = fontRendererObj.getStringWidth(file);

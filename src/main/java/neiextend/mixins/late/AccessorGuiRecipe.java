@@ -6,7 +6,11 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.gen.Invoker;
 
+import codechicken.nei.Button;
+import codechicken.nei.RecipeSearchField;
+import codechicken.nei.RestartableTask;
 import codechicken.nei.recipe.GuiRecipe;
+import codechicken.nei.recipe.RecipePageManager;
 import codechicken.nei.scroll.ScrollContainer;
 
 /** What the recipe screen keeps to itself, for showing it again with tabs or recipes taken away. */
@@ -23,7 +27,33 @@ public interface AccessorGuiRecipe {
     @Accessor("nexttype")
     GuiButton neiextend$getNextType();
 
-    /** Shows the tab at the index of the screen's tabs, from its first page. */
+    /** The pages of the tab shown. */
+    @Accessor("handlerPages")
+    RecipePageManager neiextend$getHandlerPages();
+
+    /** Shows the tab at the index of the screen's tabs, from its first page, with the search closed. */
     @Invoker("setRecipePage")
     void neiextend$setRecipePage(int index);
+
+    /** Lays the recipes of the page out again, when they or the page changed. */
+    @Invoker("refreshContainer")
+    void neiextend$refreshContainer();
+
+    /** The search over the recipes of the tab, one for all recipe screens. */
+    @Accessor("searchField")
+    static RecipeSearchField neiextend$getSearchField() {
+        throw new AssertionError();
+    }
+
+    /** The button opening and closing the search. */
+    @Accessor("toggleSearch")
+    static Button neiextend$getToggleSearch() {
+        throw new AssertionError();
+    }
+
+    /** Filters the recipes of the screen open by what is searched. */
+    @Accessor("updateFilter")
+    static RestartableTask neiextend$getUpdateFilter() {
+        throw new AssertionError();
+    }
 }

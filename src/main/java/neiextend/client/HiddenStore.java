@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -374,6 +375,30 @@ public final class HiddenStore {
             setRecipes(next);
             changed();
         }
+    }
+
+    /** Shows the recipes again, all in one change. */
+    public synchronized void showRecipes(Collection<HiddenRecipe> shown) {
+        List<HiddenRecipe> next = new ArrayList<>(recipes);
+        if (next.removeAll(new HashSet<>(shown))) {
+            setRecipes(next);
+            changed();
+        }
+    }
+
+    /** Hides a recipe shown again (from the list of the hidden ones) once more, in its place among them. */
+    public synchronized void hideAgain(HiddenRecipe recipe) {
+        if (recipes.contains(recipe)) {
+            return;
+        }
+        List<HiddenRecipe> next = new ArrayList<>(recipes);
+        int at = 0;
+        while (at < next.size() && next.get(at).time <= recipe.time) {
+            at++;
+        }
+        next.add(at, recipe);
+        setRecipes(next);
+        changed();
     }
 
     public synchronized void showAllRecipes() {
