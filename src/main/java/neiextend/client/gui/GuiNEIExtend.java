@@ -1875,8 +1875,7 @@ public class GuiNEIExtend extends ScaledScreen {
         int color = accent == Theme.DANGER ? Theme.blend(accent, Theme.TEXT, lit)
             : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
         Icons.draw(icon, x0 + 6, by + 5, color);
-        fontRendererObj
-            .drawString(Theme.ellipsize(fontRendererObj, label, RESTORE_WIDTH - 20), x0 + 16, by + 4, color);
+        fontRendererObj.drawString(Theme.ellipsize(fontRendererObj, label, RESTORE_WIDTH - 20), x0 + 16, by + 4, color);
         return over;
     }
 

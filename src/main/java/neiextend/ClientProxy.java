@@ -37,9 +37,6 @@ public class ClientProxy extends CommonProxy {
         GuiContainerManager.addDrawHandler(RecipeScreenHooks.INSTANCE);
         GuiContainerManager.addTooltipHandler(RecipeScreenHooks.INSTANCE);
         GuiContainerManager.addInputHandler(RecipeScreenHooks.INSTANCE);
-        FMLCommonHandler.instance()
-            .bus()
-            .register(RecipeScreenHooks.INSTANCE);
         API.registerNEIGuiHandler(RecipeScreenHooks.INSTANCE);
 
         // Hidden recipes are left out by a recipe filter, the way NEI's own presets leave recipes out.

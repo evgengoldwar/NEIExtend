@@ -1,8 +1,6 @@
 package neiextend.client;
 
-import java.awt.Point;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +10,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.inventory.Slot;
@@ -23,12 +20,9 @@ import net.minecraftforge.client.event.GuiOpenEvent;
 
 import org.lwjgl.opengl.GL11;
 
-import codechicken.lib.gui.GuiDraw;
 import codechicken.lib.vec.Rectangle4i;
-import codechicken.nei.ItemsTooltipLineHandler;
 import codechicken.nei.NEICPH;
 import codechicken.nei.NEIClientConfig;
-import codechicken.nei.PositionedStack;
 import codechicken.nei.RecipeSearchField;
 import codechicken.nei.Widget;
 import codechicken.nei.api.INEIGuiHandler;
@@ -39,14 +33,12 @@ import codechicken.nei.guihook.IContainerTooltipHandler;
 import codechicken.nei.recipe.GuiCraftingRecipe;
 import codechicken.nei.recipe.GuiRecipe;
 import codechicken.nei.recipe.GuiUsageRecipe;
-import codechicken.nei.recipe.HandlerInfo;
 import codechicken.nei.recipe.IRecipeHandler;
 import codechicken.nei.recipe.RecipeHandlerRef;
 import codechicken.nei.recipe.RecipePageManager;
 import codechicken.nei.recipe.TemplateRecipeHandler;
 import codechicken.nei.scroll.ScrollContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import neiextend.client.gui.GuiNEIExtend;
 import neiextend.client.gui.ui.Icons;
 import neiextend.client.gui.ui.Smooth;
@@ -70,7 +62,6 @@ public final class RecipeScreenHooks
         HIDE_TAB(Icons.EYE_OFF),
         PUT_FIRST(Icons.STAR),
         PICK_RECIPES(Icons.TARGET),
-        GROUP(Icons.GROUP),
         OPEN_WINDOW(Icons.GEAR);
 
         final String[] icon;
@@ -85,8 +76,6 @@ public final class RecipeScreenHooks
     private static final int BAR_HEIGHT = Tool.values().length * (BUTTON + GAP) - GAP + PAD * 2;
     /** How long the note under the window stays, and how long it takes to fade out at the end (ms). */
     private static final long TOAST_MS = 7000, TOAST_FADE_MS = 400;
-    /** How long a grouped recipe shows each of its recipes, in ticks (as NEI cycles its permutations). */
-    private static final int GROUP_CYCLE_TICKS = 20;
 
     /** What a recipe screen was opened for, to look it up again when hidden tabs are shown again. */
     private static final class Query {
@@ -166,11 +155,6 @@ public final class RecipeScreenHooks
     }
 
     private final Map<GuiRecipe<?>, Query> queries = new WeakHashMap<>();
-    /** Ticks counted on the recipe screen, for showing grouped recipes in turn. */
-    private int groupTicks;
-    /** The list of a grouped slot's stacks in the tooltip, kept while the same slot is hovered. */
-    private ItemsTooltipLineHandler variantsLine;
-    private Object variantsKey;
     private final Smooth[] light = new Smooth[Tool.values().length];
     private final Smooth undoLight = new Smooth(0);
     /** Picking recipes to hide: a click on a recipe hides it. */
@@ -286,9 +270,6 @@ public final class RecipeScreenHooks
             case PICK_RECIPES:
                 picking = !picking;
                 break;
-            case GROUP:
-                toggleGrouping(gui);
-                break;
             case OPEN_WINDOW:
                 picking = false;
                 Minecraft.getMinecraft()
@@ -330,53 +311,6 @@ public final class RecipeScreenHooks
         }
     }
 
-    /** Turns showing recipes differing only by material as one on or off, for the tabs open now too. */
-    private void toggleGrouping(GuiRecipe<?> gui) {
-        boolean on = !HiddenStore.INSTANCE.groupRecipes();
-        HiddenStore.INSTANCE.setGroupRecipes(on);
-        regroup(gui, on);
-        toast = new Toast(gui, I18n.format(on ? "neiextend.toast.grouped" : "neiextend.toast.ungrouped"), () -> {
-            HiddenStore.INSTANCE.setGroupRecipes(!on);
-            regroup(gui, !on);
-        });
-    }
-
-    private static void regroup(GuiRecipe<?> gui, boolean on) {
-        for (IRecipeHandler handler : handlers(gui)) {
-            if (on) {
-                RecipeGroups.group(handler);
-            } else {
-                RecipeGroups.ungroup(handler);
-            }
-        }
-        refreshPage(gui);
-    }
-
-    /** Every second the grouped recipes on the screen show the next of their group, but the one under the mouse. */
-    @SubscribeEvent
-    public void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
-        GuiScreen screen = Minecraft.getMinecraft().currentScreen;
-        if (!(screen instanceof GuiRecipe) || ++groupTicks % GROUP_CYCLE_TICKS != 0 || GuiScreen.isShiftKeyDown()) {
-            return;
-        }
-        GuiRecipe<?> gui = (GuiRecipe<?>) screen;
-        IRecipeHandler handler = gui.getHandler();
-        List<RecipeGroups.Group> groups = RecipeGroups.groupsOf(handler);
-        if (groups.isEmpty()) {
-            return;
-        }
-        Point mouse = GuiDraw.getMousePosition();
-        RecipeHandlerRef hovered = RecipeWidgets.refOf(recipeAt(gui, mouse.x, mouse.y));
-        for (RecipeGroups.Group group : groups) {
-            if (hovered == null || hovered.handler != handler || hovered.recipeIndex != group.index()) {
-                RecipeGroups.step(handler, group, 1);
-            }
-        }
-    }
-
     /** Puts the tab shown before all others, or back in NEI's order when it already is first. */
     private void togglePutFirst(GuiRecipe<?> gui) {
         IRecipeHandler handler = gui.getHandler();
@@ -414,8 +348,6 @@ public final class RecipeScreenHooks
             return;
         }
         click();
-        // A grouped recipe shows another of its group, so the group stays.
-        RecipeGroups.skipHidden(ref.handler, ref.recipeIndex);
         GuiRecipe<?> shown = reloadRecipes(gui);
         if (shown != null) {
             toast = new Toast(shown, I18n.format("neiextend.toast.recipe_hidden", hidden.tab), () -> {
@@ -522,25 +454,7 @@ public final class RecipeScreenHooks
     public void rememberQuery(GuiRecipe<?> gui, boolean crafting, String id, Object[] args) {
         if (gui != null && id != null && args != null) {
             queries.put(gui, new Query(crafting, id, args));
-            // Not for a screen opened on one recipe (a bookmark): it is already on that recipe's page.
-            if (!"recipeId".equals(id) && groupAll(gui)) {
-                gui.forceRefreshPage();
-            }
         }
-    }
-
-    /**
-     * Puts the recipes differing only by material together in each tab of the screen, when that is on; true when some
-     * were. Only screens are grouped: NEI's other lookups (bookmarks, crafting chains) keep every recipe in place.
-     */
-    private static boolean groupAll(GuiRecipe<?> gui) {
-        boolean grouped = false;
-        for (IRecipeHandler handler : handlers(gui)) {
-            RecipeGroups.group(handler);
-            grouped |= !RecipeGroups.groupsOf(handler)
-                .isEmpty();
-        }
-        return grouped;
     }
 
     /**
@@ -569,7 +483,6 @@ public final class RecipeScreenHooks
             close(gui);
             return;
         }
-        groupAll(gui);
         int index = -1;
         for (int i = 0; i < handlers.size(); i++) {
             if (HandlerCatalog.idOf(handlers.get(i))
@@ -652,7 +565,6 @@ public final class RecipeScreenHooks
         for (Tool tool : Tool.values()) {
             int bx = x0 + PAD, by = buttonTop(gui, tool);
             boolean active = tool == Tool.PICK_RECIPES && picking;
-            boolean grouping = tool == Tool.GROUP && HiddenStore.INSTANCE.groupRecipes();
             boolean first = tool == Tool.PUT_FIRST && HiddenStore.INSTANCE.pinPosition(gui.getHandler()) >= 0;
             double lit = light[tool.ordinal()].update(tool == hovered ? 1 : 0, 22);
             int background, border;
@@ -662,9 +574,6 @@ public final class RecipeScreenHooks
             } else if (first) {
                 background = Theme.blend(0xFF3A3218, 0xFF4A4020, lit);
                 border = Theme.WARN;
-            } else if (grouping) {
-                background = Theme.blend(0xFF13305C, 0xFF183A6E, lit);
-                border = Theme.ACCENT;
             } else if (tool == Tool.HIDE_TAB) {
                 background = Theme.blend(Theme.CONTROL, 0xFF3A2326, lit);
                 border = Theme.blend(0xFF2A3D5C, Theme.DANGER, lit);
@@ -785,12 +694,6 @@ public final class RecipeScreenHooks
                             + (position >= 0 ? I18n.format("neiextend.tool.unpin_text", position + 1)
                                 : I18n.format("neiextend.tool.pin_text")));
                     break;
-                case GROUP:
-                    lines.add(
-                        I18n.format(
-                            HiddenStore.INSTANCE.groupRecipes() ? "neiextend.tool.group_on" : "neiextend.tool.group"));
-                    lines.add(EnumChatFormatting.GRAY + I18n.format("neiextend.tool.group_text"));
-                    break;
                 case PICK_RECIPES:
                     lines.add(I18n.format(picking ? "neiextend.tool.pick_on" : "neiextend.tool.pick"));
                     lines.add(EnumChatFormatting.GRAY + I18n.format("neiextend.tool.pick_text"));
@@ -842,78 +745,15 @@ public final class RecipeScreenHooks
         }
     }
 
-    /**
-     * Over a stack of a grouped recipe: which of its recipes is shown, and what the stack is in each of them, as NEI
-     * lists the permutations a slot accepts.
-     */
     @Override
     public List<String> handleItemTooltip(GuiContainer container, ItemStack stack, int mouseX, int mouseY,
         List<String> currenttip) {
-        if (!(container instanceof GuiRecipe) || picking) {
-            return currenttip;
-        }
-        Widget widget = recipeAt((GuiRecipe<?>) container, mouseX, mouseY);
-        RecipeHandlerRef ref = RecipeWidgets.refOf(widget);
-        RecipeGroups.Group group = ref == null ? null : RecipeGroups.groupAt(ref.handler, ref.recipeIndex);
-        if (group == null) {
-            return currenttip;
-        }
-        currenttip
-            .add(EnumChatFormatting.GRAY + I18n.format("neiextend.group.variant", group.shown() + 1, group.size()));
-        PositionedStack slot = slotAt(ref, widget, mouseX, mouseY);
-        if (slot != null) {
-            List<ItemStack> variants = group.slot(slot.relx, slot.rely);
-            if (variants.size() > 1) {
-                Object key = Arrays.asList(group, slot.relx, slot.rely);
-                if (variantsLine == null || !key.equals(variantsKey)) {
-                    variantsLine = new ItemsTooltipLineHandler(
-                        I18n.format("neiextend.group.variants", variants.size()),
-                        new ArrayList<>(variants));
-                    variantsKey = key;
-                }
-                currenttip.add(GuiDraw.TOOLTIP_HANDLER + GuiDraw.getTipLineId(variantsLine));
-            }
-        }
         return currenttip;
     }
 
-    /** The stack of the widget's recipe under the mouse, or null. */
-    private static PositionedStack slotAt(RecipeHandlerRef ref, Widget widget, int mouseX, int mouseY) {
-        HandlerInfo info = HandlerCatalog.infoOf(ref.handler);
-        int x = mouseX - widget.x, y = mouseY - widget.y - (info == null ? 0 : info.getYShift());
-        List<PositionedStack> stacks = new ArrayList<>();
-        try {
-            stacks.addAll(ref.handler.getIngredientStacks(ref.recipeIndex));
-            stacks.addAll(ref.handler.getOtherStacks(ref.recipeIndex));
-            PositionedStack result = ref.handler.getResultStack(ref.recipeIndex);
-            if (result != null) {
-                stacks.add(result);
-            }
-        } catch (Throwable t) {
-            return null;
-        }
-        for (PositionedStack pStack : stacks) {
-            if (pStack.contains(x, y)) {
-                return pStack;
-            }
-        }
-        return null;
-    }
-
-    // Shift and the mouse wheel over a grouped recipe show the next or the one before, before NEI uses them.
-
     @Override
     public boolean mouseScrolled(GuiContainer container, int mouseX, int mouseY, int scrolled) {
-        if (!(container instanceof GuiRecipe) || !GuiScreen.isShiftKeyDown()) {
-            return false;
-        }
-        RecipeHandlerRef ref = RecipeWidgets.refOf(recipeAt((GuiRecipe<?>) container, mouseX, mouseY));
-        RecipeGroups.Group group = ref == null ? null : RecipeGroups.groupAt(ref.handler, ref.recipeIndex);
-        if (group == null) {
-            return false;
-        }
-        RecipeGroups.step(ref.handler, group, scrolled > 0 ? -1 : 1);
-        return true;
+        return false;
     }
 
     @Override
