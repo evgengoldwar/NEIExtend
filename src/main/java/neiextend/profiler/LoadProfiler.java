@@ -65,7 +65,6 @@ public final class LoadProfiler {
     private static long reloadStart;
 
     private static long modEventStart;
-    private static long discoveryStart;
 
     static {
         RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
@@ -161,25 +160,6 @@ public final class LoadProfiler {
         milestone("FML state " + newState);
         StackSampler.setTarget(Thread.currentThread());
         TransformerProfiler.wrapNewTransformers();
-        if ("LOADING".equals(newState)) onModDiscoveryStart();
-    }
-
-    /**
-     * FML scans the mods folder (reads every jar and parses all classes for annotations) right after entering LOADING,
-     * and the first event sent to mods comes right after it. Loader itself is loaded too early to be mixed into.
-     */
-    private static void onModDiscoveryStart() {
-        discoveryStart = System.nanoTime();
-        milestone("FML mod discovery started (scanning mods folder)");
-    }
-
-    private static void onModDiscoveryEnd() {
-        long took = System.nanoTime() - discoveryStart;
-        discoveryStart = 0;
-        milestone(String.format(Locale.ROOT, "FML mod discovery finished in %.1f ms", toMillis(took)));
-        synchronized (LoadProfiler.class) {
-            recordModTime("<fml:discovery>", "FML mod discovery", "Discovery", took);
-        }
     }
 
     // ----------------------------------------------------------------------------------------------------------------
@@ -188,7 +168,6 @@ public final class LoadProfiler {
 
     public static void onModEventStart() {
         if (!isActive()) return;
-        if (discoveryStart != 0) onModDiscoveryEnd();
         modEventStart = System.nanoTime();
     }
 
