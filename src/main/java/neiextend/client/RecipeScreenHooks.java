@@ -42,6 +42,7 @@ import codechicken.nei.recipe.RecipePageManager;
 import codechicken.nei.recipe.TemplateRecipeHandler;
 import codechicken.nei.scroll.ScrollContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import neiextend.NEIExtend;
 import neiextend.client.gui.GuiNEIExtend;
 import neiextend.client.gui.ui.Icons;
 import neiextend.client.gui.ui.Smooth;
@@ -169,6 +170,8 @@ public final class RecipeScreenHooks
     private GuiRecipe<?> sweepGui;
     private IRecipeHandler sweepHandler;
     private final Set<Integer> swept = new LinkedHashSet<>();
+    /** When the button was first seen up during the sweep, 0 while it is held. */
+    private long sweepUpSince;
     private Toast toast;
 
     private RecipeScreenHooks() {
@@ -322,8 +325,32 @@ public final class RecipeScreenHooks
         }
     }
 
-    /** Called every frame: goes on while the button is held, hides what was swept over when it is let go. */
-    private void updateSweep(GuiRecipe<?> gui, int mouseX, int mouseY) {
+    /** The mouse moved with a button held; true when it was ours (a sweep over recipes to hide). */
+    public boolean mouseDragged(GuiRecipe<?> gui, int mouseX, int mouseY, int button) {
+        if (sweepGui != gui || button != 0) {
+            return false;
+        }
+        Widget recipe = recipeAt(gui, mouseX, mouseY);
+        if (recipe != null) {
+            sweep(recipe);
+        }
+        return true;
+    }
+
+    /** A button was let go; true when it was ours: what was swept over is hidden. */
+    public boolean mouseReleased(GuiRecipe<?> gui, int mouseX, int mouseY, int state) {
+        if (sweepGui != gui || state != 0) {
+            return false;
+        }
+        finishSweep(gui);
+        return true;
+    }
+
+    /**
+     * Called every frame. The sweep goes by the mouse's events; this only ends one whose screen went away, and one
+     * whose release was missed (the button has been up for a moment).
+     */
+    private void updateSweep(GuiRecipe<?> gui) {
         if (sweepGui == null) {
             return;
         }
@@ -332,12 +359,15 @@ public final class RecipeScreenHooks
             return;
         }
         if (Mouse.isButtonDown(0)) {
-            Widget recipe = recipeAt(gui, mouseX, mouseY);
-            if (recipe != null) {
-                sweep(recipe);
-            }
-            return;
+            sweepUpSince = 0;
+        } else if (sweepUpSince == 0) {
+            sweepUpSince = System.currentTimeMillis();
+        } else if (System.currentTimeMillis() - sweepUpSince > 300) {
+            finishSweep(gui);
         }
+    }
+
+    private void finishSweep(GuiRecipe<?> gui) {
         IRecipeHandler handler = sweepHandler;
         Set<Integer> recipes = new LinkedHashSet<>(swept);
         endSweep();
@@ -347,6 +377,7 @@ public final class RecipeScreenHooks
     }
 
     private void endSweep() {
+        sweepUpSince = 0;
         sweepGui = null;
         sweepHandler = null;
         swept.clear();
@@ -407,7 +438,13 @@ public final class RecipeScreenHooks
         }
         click();
         // Struck off in place, which is instant; the tab is only shown again when that can't be done or it is empty.
-        GuiRecipe<?> shown = RecipeListPatch.remove(gui, handler, recipeIndices) ? gui : reloadRecipes(gui);
+        boolean inPlace = RecipeListPatch.remove(gui, handler, recipeIndices);
+        NEIExtend.LOG.info(
+            "Hid {} recipe(s) of {}{}",
+            hidden.size(),
+            HandlerCatalog.idOf(handler),
+            inPlace ? "" : ", showing the tab again");
+        GuiRecipe<?> shown = inPlace ? gui : reloadRecipes(gui);
         if (shown != null) {
             String tab = hidden.get(0).tab;
             String text = hidden.size() == 1 ? I18n.format("neiextend.toast.recipe_hidden", tab)
@@ -578,7 +615,7 @@ public final class RecipeScreenHooks
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         try {
-            updateSweep(gui, mouseX, mouseY);
+            updateSweep(gui);
             if (picking) {
                 drawPicked(gui, mouseX, mouseY);
             }

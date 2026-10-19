@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -115,6 +116,8 @@ public final class HiddenStore {
     private volatile Map<String, Integer> pinPositions = Collections.emptyMap();
     private volatile List<HiddenRecipe> recipes = Collections.emptyList();
     private volatile Map<String, TabRecipes> recipesByHandler = Collections.emptyMap();
+    /** Tabs whose recipes are always compared in full: the quick check by result once missed one of them. */
+    private final Set<String> fullCheckTabs = Collections.newSetFromMap(new ConcurrentHashMap<>());
     /** Counts the changes, so a screen can tell its recipes are out of date. */
     private volatile int revision;
 
@@ -211,6 +214,10 @@ public final class HiddenStore {
         /** Items made with any damage, and whether a recipe makes nothing that can be told (always checked). */
         private final Set<Item> anyDamage = new HashSet<>();
         private boolean unknownResult;
+
+        TabRecipes(boolean fullCheck) {
+            unknownResult = fullCheck;
+        }
 
         void add(HiddenRecipe recipe) {
             recipes.add(recipe);
@@ -424,6 +431,12 @@ public final class HiddenStore {
             added.add(recipe);
             // Seen by the next ones, so two picks of the same recipe hide it once.
             setRecipes(next);
+            if (!isRecipeHidden(handler, recipeIndex)) {
+                // The quick check by result does not know this recipe again: the tab is compared in full from now on.
+                NEIExtend.LOG.warn("Recipe {} of {} is checked in full from now on", recipeIndex, handlerId);
+                fullCheckTabs.add(handlerId);
+                setRecipes(next);
+            }
             next = new ArrayList<>(next);
         }
         if (!added.isEmpty()) {
@@ -475,7 +488,7 @@ public final class HiddenStore {
     private void setRecipes(List<HiddenRecipe> next) {
         Map<String, TabRecipes> byHandler = new HashMap<>();
         for (HiddenRecipe recipe : next) {
-            byHandler.computeIfAbsent(recipe.handlerId, k -> new TabRecipes())
+            byHandler.computeIfAbsent(recipe.handlerId, k -> new TabRecipes(fullCheckTabs.contains(k)))
                 .add(recipe);
         }
         recipesByHandler = byHandler;
