@@ -41,6 +41,7 @@ import codechicken.nei.recipe.TemplateRecipeHandler;
 import codechicken.nei.scroll.ScrollContainer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import neiextend.NEIExtend;
+import neiextend.client.gui.GuiHideRecipes;
 import neiextend.client.gui.GuiNEIExtend;
 import neiextend.client.gui.ui.Icons;
 import neiextend.client.gui.ui.Smooth;
@@ -49,7 +50,8 @@ import neiextend.mixins.late.AccessorGuiRecipe;
 
 /**
  * The mod on NEI's recipe screen: a small bar of buttons on the right of the window (hide this tab, put it first,
- * pick recipes to hide, open the mod's window), a red frame over the recipe under the mouse while picking, and a note
+ * pick recipes to hide - or, with a right click, see all of the tab's recipes on one screen - open the mod's
+ * window), a red frame over the recipe under the mouse while picking, and a note
  * under the
  * window after something was hidden, with a way to take it back.
  */
@@ -241,6 +243,12 @@ public final class RecipeScreenHooks
         if (tool != null || overBar(gui, mouseX, mouseY)) {
             if (tool != null && button == 0) {
                 press(gui, tool);
+            } else if (tool == Tool.PICK_RECIPES && button == 1 && gui.getHandler() != null) {
+                // All recipes of the tab on one screen, to hide many at once.
+                picking = false;
+                click();
+                Minecraft.getMinecraft()
+                    .displayGuiScreen(new GuiHideRecipes(gui));
             }
             return true;
         }
@@ -710,6 +718,7 @@ public final class RecipeScreenHooks
                 case PICK_RECIPES:
                     lines.add(I18n.format(picking ? "neiextend.tool.pick_on" : "neiextend.tool.pick"));
                     lines.add(EnumChatFormatting.GRAY + I18n.format("neiextend.tool.pick_text"));
+                    lines.add(EnumChatFormatting.AQUA + I18n.format("neiextend.tool.pick_grid"));
                     break;
                 case OPEN_WINDOW:
                     lines.add(I18n.format("neiextend.tool.window"));
