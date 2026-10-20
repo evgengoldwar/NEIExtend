@@ -20,6 +20,7 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import codechicken.nei.PositionedStack;
+import codechicken.nei.SearchField;
 import codechicken.nei.api.IRecipeFilter;
 import codechicken.nei.recipe.GuiRecipe;
 import codechicken.nei.recipe.IRecipeHandler;
@@ -169,6 +170,26 @@ public class GuiHideRecipes extends ScaledScreen {
         }
     }
 
+    /** Which items of a recipe the search looks at: all of them, only what goes in, or only what comes out. */
+    private enum Scope {
+
+        ALL("neiextend.grid.scope.all", ""),
+        INPUTS("neiextend.grid.scope.inputs", "<"),
+        OUTPUTS("neiextend.grid.scope.outputs", ">");
+
+        final String key;
+        /** NEI's mark for the items a search word looks at. */
+        final String mark;
+
+        Scope(String key, String mark) {
+            this.key = key;
+            this.mark = mark;
+        }
+    }
+
+    /** Kept while the game runs, for the next time the screen opens. */
+    private static Scope scope = Scope.ALL;
+
     private final GuiRecipe<?> parent;
     private final IRecipeHandler handler;
     private final String tabName;
@@ -184,6 +205,8 @@ public class GuiHideRecipes extends ScaledScreen {
     private int gridLeft, gridRight, gridTop, gridBottom;
     private int columns = 1, cardWidth = CARD_MIN_WIDTH;
     private FlatTextField search;
+    private int searchWidth;
+    private final Smooth[] scopeLight = { new Smooth(0), new Smooth(0), new Smooth(0) };
     private FlatButton undoButton;
 
     private int scroll;
@@ -246,7 +269,8 @@ public class GuiHideRecipes extends ScaledScreen {
         cardWidth = (gridRight - gridLeft + GAP) / columns - GAP;
 
         String text = search == null ? "" : search.getText();
-        int searchWidth = Math.max(90, Math.min(SEARCH_WIDTH, contentRight - UNDO_WIDTH - 8 - contentLeft));
+        searchWidth = Math
+            .max(90, Math.min(SEARCH_WIDTH, contentRight - UNDO_WIDTH - 8 - scopesWidth() - 8 - contentLeft));
         search = new FlatTextField(fontRendererObj, contentLeft, contentTop, searchWidth, CONTROLS);
         search.setMaxStringLength(64);
         search.setText(text);
@@ -262,21 +286,122 @@ public class GuiHideRecipes extends ScaledScreen {
         rebuild();
     }
 
-    /** Fills the grid again from the cards not hidden that match what is searched. */
+    /**
+     * Fills the grid again from the cards not hidden that match what is searched. The search is NEI's own, as over
+     * its recipe screen: words in any order ("small gear" finds Small Gold Gear and the other materials), @mod,
+     * $ore dictionary, | for either, - to leave out, and &lt; or &gt; before a word for what goes in or comes out.
+     */
     private void rebuild() {
-        String query = search == null ? ""
+        String text = search == null ? ""
             : search.getText()
-                .trim()
-                .toLowerCase(Locale.ROOT);
+                .trim();
+        String lower = text.toLowerCase(Locale.ROOT);
+        IRecipeFilter filter = text.isEmpty() ? null : neiFilter(text);
         shown.clear();
         for (Card card : cards) {
-            if (!card.hidden && (query.isEmpty() || card.searchText(handler)
-                .contains(query))) {
+            if (!card.hidden && (text.isEmpty() || matches(card, filter, lower))) {
                 shown.add(card);
             }
         }
         marking = false;
         clampScroll();
+    }
+
+    /** NEI's filter for what is searched, over the items the scope looks at; null when NEI can't make one. */
+    private static IRecipeFilter neiFilter(String text) {
+        StringBuilder query = new StringBuilder();
+        if (scope != Scope.ALL) {
+            // Each alternative gets the mark: NEI reads it for the words that follow, up to the next |.
+            for (String part : text.split("\\|")) {
+                if (query.length() > 0) {
+                    query.append(" | ");
+                }
+                query.append(scope.mark)
+                    .append(part.trim());
+            }
+        } else {
+            query.append(text);
+        }
+        try {
+            return SearchField.searchParser.getRecipeFilter(query.toString());
+        } catch (Throwable t) {
+            NEIExtend.LOG.warn("NEI could not read the search \"{}\"; searching by name instead", text, t);
+            return null;
+        }
+    }
+
+    private boolean matches(Card card, IRecipeFilter filter, String lower) {
+        if (filter != null) {
+            try {
+                return filter.matches(handler, card.recipe);
+            } catch (Throwable t) {
+                // A recipe NEI's filter fails on: looked at by its items' names below.
+            }
+        }
+        return card.searchText(handler)
+            .contains(lower);
+    }
+
+    // The scope of the search: segments joined into one box, right of the search field.
+
+    private String scopeLabel(Scope each) {
+        return I18n.format(each.key);
+    }
+
+    private int scopesWidth() {
+        int width = 0;
+        for (Scope each : Scope.values()) {
+            width += fontRendererObj.getStringWidth(scopeLabel(each)) + 16;
+        }
+        return width;
+    }
+
+    private int[] scopeEdges() {
+        int[] edges = new int[Scope.values().length + 1];
+        int x = contentLeft + searchWidth + 8;
+        for (Scope each : Scope.values()) {
+            edges[each.ordinal()] = x;
+            x += fontRendererObj.getStringWidth(scopeLabel(each)) + 16;
+        }
+        edges[edges.length - 1] = x;
+        return edges;
+    }
+
+    private Scope scopeAt(int mouseX, int mouseY) {
+        if (mouseY < contentTop || mouseY >= contentTop + CONTROLS) {
+            return null;
+        }
+        int[] edges = scopeEdges();
+        for (Scope each : Scope.values()) {
+            if (mouseX >= edges[each.ordinal()] && mouseX < edges[each.ordinal() + 1] - 2) {
+                return each;
+            }
+        }
+        return null;
+    }
+
+    private void drawScopes(int mouseX, int mouseY) {
+        int[] edges = scopeEdges();
+        int x0 = edges[0], x1 = edges[edges.length - 1] - 2, y0 = contentTop, y1 = contentTop + CONTROLS;
+        Theme.roundBox(x0, y0, x1, y1, Theme.CONTROL, 0xFF2A3D5C);
+        Scope over = scopeAt(mouseX, mouseY);
+        for (Scope each : Scope.values()) {
+            int sx0 = edges[each.ordinal()], sx1 = edges[each.ordinal() + 1] - 2;
+            double lit = scopeLight[each.ordinal()].update(each == over ? 1 : 0, 22);
+            if (each == scope) {
+                Theme.roundBox(
+                    sx0,
+                    y0,
+                    sx1,
+                    y1,
+                    Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT_FILL, 0.5 + 0.5 * lit),
+                    Theme.ACCENT_EDGE);
+            } else if (lit > 0.01) {
+                Theme.fill(sx0 + 1, y0 + 1, sx1 - 1, y1 - 1, Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+            }
+            int color = each == scope ? Theme.TEXT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+            Theme.centered(fontRendererObj, scopeLabel(each), (sx0 + sx1) / 2, y0 + (CONTROLS - 8) / 2, color);
+        }
     }
 
     private int rows() {
@@ -374,6 +499,15 @@ public class GuiHideRecipes extends ScaledScreen {
         super.mouseClicked(mouseX, mouseY, button);
         search.mouseClicked(mouseX, mouseY, button);
         if (button != 0) {
+            return;
+        }
+        Scope picked = scopeAt(mouseX, mouseY);
+        if (picked != null) {
+            if (picked != scope) {
+                scope = picked;
+                click();
+                rebuild();
+            }
             return;
         }
         int dragged = scrollbarDrag.press(
@@ -578,6 +712,7 @@ public class GuiHideRecipes extends ScaledScreen {
         undoButton.displayString = undo.isEmpty() ? I18n.format("neiextend.toast.undo")
             : I18n.format("neiextend.grid.undo", undo.peek().cards.size());
         search.drawTextBox();
+        drawScopes(mouseX, mouseY);
         drawGrid(mouseX, mouseY);
         drawNote();
         super.drawScaled(mouseX, mouseY, partialTicks);
